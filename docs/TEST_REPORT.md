@@ -6,7 +6,7 @@ Date: 2026-10-01 - Version 0.1.0 - Result: **188 automated tests, all passing** 
 
 * **Verdict:** the platform is solid as an alpha for lab and read-only production use. Every attack and destructive
   scenario we tried was blocked, and no attempt could make a device reload, erase, or accept unvalidated commands.
-* Testing found **8 real defects** (1 high, 5 medium, 2 low). All 8 are fixed and have regression tests.
+* Testing found **9 product defects** (2 high, 5 medium, 2 low) plus **3 installer defects**. All are fixed and have regression tests.
 * **No unresolved critical or high findings.** Residual risks are listed below; the main one is that vendor drivers have
   been validated against simulators and a local SSH lab - **not against real Cisco/Fortinet/Palo Alto/MikroTik/Ruckus/Aruba hardware**.
   That must be done before write access is enabled in production.
@@ -32,6 +32,7 @@ Date: 2026-10-01 - Version 0.1.0 - Result: **188 automated tests, all passing** 
 | 6 | Medium | Functional | PAN-OS block rule was added at the bottom of the rulebase, where an earlier allow rule could shadow it. | Rule is now moved to the top. (FortiOS equivalent - see residual risks.) |
 | 7 | Low | Usability / a11y | Escape did not close the detail drawer; focus not moved into it. | Global Escape handler; focus moves to the drawer's close button. |
 | 8 | Low | Accessibility | Capability-matrix table headers lacked `scope`. | Added `scope="col"`. |
+| 9 | High | Packaging | `httpx` is imported at runtime by the AI module but was missing from `requirements.txt`: a clean `pip install` (and the Docker image) produced an app that **would not start**. Hidden because the dev environment had it. Found by the installer test. | Added to `requirements.txt`; installer now imports the real application as its dependency check. |
 
 Also corrected during testing (test or cosmetic issues, not product defects): bcrypt cost made tests slow (now configurable, `ONC_BCRYPT_ROUNDS`; production default stays 12), one test relied on a simulator quirk, topology tier layout overlap.
 
@@ -64,3 +65,29 @@ investigation flow; a viewer-role UI hides actions they cannot perform; mobile l
 6. **Deny-list false positives by design:** descriptions containing words such as "password" or "username" are refused.
 7. **AI scope:** rule-based intents; unfamiliar phrasing yields a "didn't understand" answer rather than a guess. Optional LLM is classification-only.
 8. **Not performed:** third-party penetration test, load testing beyond the concurrent smoke test, long-duration soak, screen-reader testing, firmware-matrix testing.
+
+
+## Installer testing (`install.sh`)
+
+Run for real on a systemd host (Debian 13, root via sudo): not mocked. ShellCheck clean.
+
+| Scenario | Result |
+|---|---|
+| Bad `--port`, unknown option, bad `--bind`, bad `--server-name`, relative paths, missing source dir, non-Debian OS | Refused with a clear message, nothing installed |
+| Fresh install with `--nginx` (non-root user -> sudo re-exec) | Installs, health check passes |
+| Service runs unprivileged; secrets/db 0600; env file 0640 root:service; TLS key 0600; app bound to loopback behind nginx | Verified; `systemd-analyze security` exposure 4.0 (OK) |
+| HTTP -> HTTPS redirect, security headers through the proxy, login over TLS with the generated password | Verified |
+| Production mode: simulator fault endpoint | 404 |
+| Forged `X-Forwarded-For` through nginx / direct exposure | Ignored (nginx overwrites it; direct mode does not trust it) |
+| Service restart, re-run (upgrade), port change on re-run | Data, password and settings preserved; nginx follows new port |
+| `curl | bash` style (stdin pipe, clone from git) in demo mode | Works |
+| Mode switching demo <-> production <-> nginx on the same data | Security flags reset correctly each run (see below); warning when leaving demo mode |
+| `--uninstall` (keeps data) and `--uninstall --purge` | No leftovers (files, user, certs, nginx site); nginx default site restored |
+| Test suite on Python 3.10, 3.12, 3.13 (Ubuntu 22.04 / 24.04 interpreters) | 174/174 non-browser tests pass on each |
+
+Installer defects found and fixed during this testing: (a) arguments were lost on the automatic sudo re-exec, silently
+running a *default* install; (b) re-running in a different mode left a stale `ONC_TRUST_PROXY=1` (spoofable client IPs)
+or demo/simulator flags - these are now set explicitly on every run; (c) uninstall left nginx without its default site.
+
+**Not tested:** an actual Ubuntu 22.04/24.04 machine (Debian 13 and the Ubuntu Python versions were used as proxies),
+non-x86 architectures (the installer falls back to compiling wheels, untested), air-gapped installs, Let's Encrypt (self-signed certificate only).

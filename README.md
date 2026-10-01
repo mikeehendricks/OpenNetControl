@@ -40,31 +40,47 @@ It has no tool that can approve or execute a change - that is enforced in code, 
 ![Platforms](docs/screenshots/08-platforms.png)
 </details>
 
-## Quick start (demo)
+## Install on Ubuntu Server
 
-The demo runs 15 simulated devices across 9 platforms - no hardware needed.
+Tested on Debian 13 with systemd; targets Ubuntu 22.04 / 24.04 (Python 3.10+ - the test suite passes on 3.10, 3.12 and 3.13).
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
+git clone https://github.com/mikeehendricks/OpenNetControl.git && cd OpenNetControl
+sudo ./install.sh --nginx --server-name onc.example.com     # recommended: app on loopback + nginx TLS on :443
+# or, plain HTTP on :8080 (lab only):
+sudo ./install.sh
+```
+
+or straight from GitHub: `curl -fsSL https://raw.githubusercontent.com/mikeehendricks/OpenNetControl/main/install.sh | sudo bash -s -- --nginx`
+
+The installer: installs apt packages (python3-venv, nginx if requested, ...), creates an unprivileged `opennetcontrol`
+user, installs the app to `/opt/opennetcontrol` in its own virtualenv, writes `/etc/opennetcontrol/opennetcontrol.env`,
+installs a sandboxed systemd service (`NoNewPrivileges`, `ProtectSystem=strict`, no capabilities), optionally configures
+nginx with a self-signed certificate (replace it with a real one), starts the service and verifies `/api/health`.
+
+* Admin password is generated on first start: `sudo cat /var/lib/opennetcontrol/initial_admin_password.txt` (change it, then delete the file).
+* Re-running the script **upgrades** the code and keeps data, secrets and settings.
+* Options: `--port`, `--bind`, `--nginx`, `--server-name`, `--trust-proxy`, `--demo`, `--source`, `--repo/--ref`, `--no-start`, `--skip-apt`, `-y`; see `./install.sh --help`.
+* Remove: `sudo ./install.sh --uninstall` (keeps data) or `--uninstall --purge` (deletes everything).
+* `--demo` runs 15 simulated devices with fault injection - never use it on a production host.
+
+### Run without the installer (development / demo)
+
+```bash
+python -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt
 ONC_DEMO=1 ONC_ALLOW_SIM=1 python -m opennetcontrol      # http://localhost:8080
 ```
 
-Passwords are generated on first start and written (mode 0600) to `data/initial_<user>_password.txt`.
-Set `ONC_ADMIN_PASSWORD` to choose your own. In demo mode the Overview page has buttons to power off a device,
-spike CPU or drop a link so you can watch correlation and the AI investigation work.
+Passwords are generated on first start and written (mode 0600) to `data/initial_<user>_password.txt`
+(or set `ONC_ADMIN_PASSWORD`). In demo mode the Overview page has buttons to power off a device, spike CPU or drop a link
+so you can watch correlation and the AI investigation work. Docker: `docker build -t opennetcontrol . && docker run -p 8080:8080 -v onc-data:/data opennetcontrol`.
 
-## Production use
+## Production notes
 
-```bash
-pip install -r requirements.txt
-python -m opennetcontrol            # no ONC_DEMO / ONC_ALLOW_SIM: simulators and fault injection are disabled
-```
-
-* Run it behind a TLS-terminating reverse proxy. Set `ONC_TRUST_PROXY=1` **only** if that proxy sets `X-Forwarded-For`.
+* Run behind TLS (`--nginx` does this). Set `ONC_TRUST_PROXY=1` **only** if your proxy sets `X-Forwarded-For`.
 * Add devices (admin) via `POST /api/devices` with a stored credential; secrets are encrypted at rest (`ONC_VAULT_KEY` to supply your own key).
 * Device access is SSH. Host keys are pinned on first connect and a changed key raises a critical alert.
-* Docker: `docker build -t opennetcontrol . && docker run -p 8080:8080 -v onc-data:/data opennetcontrol`
+* Back up the data directory: it contains the database, JWT key and the credential-vault key.
 
 ### Configuration (environment)
 
