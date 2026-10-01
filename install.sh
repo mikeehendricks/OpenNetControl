@@ -23,7 +23,7 @@ REPO_REF="main"
 PORT="8080"
 BIND=""                 # default decided below (127.0.0.1 with --nginx, else 0.0.0.0)
 SOURCE_DIR=""
-DEMO=0 NGINX=0 SERVER_NAME="_" NO_START=0 UNINSTALL=0 PURGE=0 SKIP_APT=0 ASSUME_YES=0
+DEMO=0 NGINX=0 TRUST_PROXY=0 SERVER_NAME="_" NO_START=0 UNINSTALL=0 PURGE=0 SKIP_APT=0 ASSUME_YES=0
 MIN_PY_MINOR=10
 
 # ------------------------------------------------------------------ helpers
@@ -44,6 +44,7 @@ Usage: sudo ./install.sh [options]
   --bind ADDR            address the app binds to               (default 0.0.0.0, or 127.0.0.1 with --nginx)
   --nginx                install nginx as a TLS reverse proxy on :80/:443 (self-signed certificate)
   --server-name NAME     server_name for nginx / certificate CN (default _)
+  --trust-proxy          honour X-Forwarded-For (only if YOUR OWN reverse proxy sets it; implied by --nginx)
   --demo                 enable the simulated 15-device demo + fault injection (NOT for production)
   --source DIR           install from a local checkout          (default: the directory of this script)
   --repo URL --ref REF   install from git instead                (default: $REPO_URL @ $REPO_REF)
@@ -66,6 +67,7 @@ while [[ $# -gt 0 ]]; do
     --bind) BIND="${2:?}"; shift 2;;
     --nginx) NGINX=1; shift;;
     --server-name) SERVER_NAME="${2:?}"; shift 2;;
+    --trust-proxy) TRUST_PROXY=1; shift;;
     --demo) DEMO=1; shift;;
     --source) SOURCE_DIR="${2:?}"; shift 2;;
     --repo) REPO_URL="${2:?}"; shift 2;;
@@ -244,9 +246,16 @@ EOF
   ok "created $ENV_FILE"
 else ok "keeping existing $ENV_FILE"; fi
 chown root:"$APP_USER" "$ENV_FILE"; chmod 0640 "$ENV_FILE"
+PREV_DEMO="$(sed -n 's/^ONC_DEMO=//p' "$ENV_FILE" 2>/dev/null | tail -1)"
+if [[ "$PREV_DEMO" == "1" ]] && (( ! DEMO )); then
+  warn "leaving demo mode: the simulated demo devices stay in the database (they will show as unreachable)."
+  warn "  For a clean start run:  sudo ./install.sh --uninstall --purge   and install again."
+fi
 upsert ONC_HOST "$BIND"; upsert ONC_PORT "$PORT"; upsert ONC_DATA_DIR "$DATA_DIR"
-if (( NGINX )); then upsert ONC_TRUST_PROXY 1; fi
-if (( DEMO )); then upsert ONC_DEMO 1; upsert ONC_ALLOW_SIM 1; fi
+# Security-relevant flags are set explicitly on EVERY run so re-running in a different mode can never leave
+# a stale "trust X-Forwarded-For" or "demo/simulator" setting behind.
+if (( NGINX || TRUST_PROXY )); then upsert ONC_TRUST_PROXY 1; else upsert ONC_TRUST_PROXY 0; fi
+if (( DEMO )); then upsert ONC_DEMO 1; upsert ONC_ALLOW_SIM 1; else upsert ONC_DEMO 0; upsert ONC_ALLOW_SIM 0; fi
 
 # ------------------------------------------------------------------ systemd
 if command -v systemctl >/dev/null; then
