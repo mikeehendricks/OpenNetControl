@@ -80,7 +80,7 @@ Run for real on a systemd host (Debian 13, root via sudo): not mocked. ShellChec
 | Production mode: simulator fault endpoint | 404 |
 | Forged `X-Forwarded-For` through nginx / direct exposure | Ignored (nginx overwrites it; direct mode does not trust it) |
 | Service restart, re-run (upgrade), port change on re-run | Data, password and settings preserved; nginx follows new port |
-| `curl | bash` style (stdin pipe, clone from git) in demo mode | Works |
+| `curl \| bash` style (stdin pipe, clone from git) in demo mode | Works |
 | Mode switching demo <-> production <-> nginx on the same data | Security flags reset correctly each run (see below); warning when leaving demo mode |
 | `--uninstall` (keeps data) and `--uninstall --purge` | No leftovers (files, user, certs, nginx site); nginx default site restored |
 | Test suite on Python 3.10, 3.12, 3.13 (Ubuntu 22.04 / 24.04 interpreters) | 174/174 non-browser tests pass on each |
