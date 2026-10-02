@@ -106,15 +106,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         core.stop()
 
-    app = FastAPI(title="OpenNetControl", version="0.1.0", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="OpenNetControl", version="0.1.1", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.core = core
 
+    trusted = {p.strip() for p in s.trusted_proxies.split(",") if p.strip()}
+
     def client_ip(request: Request) -> str:
-        if s.trust_proxy:
+        """The TCP peer is the client, unless (a) ONC_TRUST_PROXY is on AND (b) the peer itself is a configured
+        trusted proxy. Only then is the last X-Forwarded-For hop (appended by that proxy) believed.
+        uvicorn's own proxy-header rewriting is disabled in __main__ so nothing else can forge this."""
+        peer = request.client.host if request.client else "?"
+        if s.trust_proxy and peer in trusted:
             xff = request.headers.get("x-forwarded-for", "")
             if xff:
-                return xff.split(",")[-1].strip()[:45]      # last hop = the one our proxy appended
-        return request.client.host if request.client else "?"
+                return xff.split(",")[-1].strip()[:45]
+        return peer
 
     # ------------------------------------------------------------------ middleware
     @app.middleware("http")
@@ -221,6 +227,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(400, str(e))
         core.db.x("UPDATE users SET pw_hash=? WHERE username=?", (bcrypt.hashpw(b.new.encode(), bcrypt.gensalt(__import__('opennetcontrol.security', fromlist=['x']).BCRYPT_ROUNDS)), u["username"]))
         core.auth.revoke(u["jti"], u["exp"])
+        try:                                   # don't leave the generated first-run password on disk
+            os.remove(os.path.join(s.data_dir, f"initial_{u['username']}_password.txt"))
+        except FileNotFoundError:
+            pass
+        except OSError:
+            log.warning("first-run file cleanup failed for user %s", u["username"])
         core.audit.log(u["username"], "auth.password_changed")
         return {"ok": True}
 

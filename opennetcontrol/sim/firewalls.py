@@ -6,6 +6,9 @@ import re
 
 from .base import SimDevice
 
+# Simulated FortiOS output for "no address"; not a socket bind.
+NOADDR = "0.0.0.0"  # nosec B104
+
 
 class FortiSim(SimDevice):
     platform = "fortinet_fortios"
@@ -42,7 +45,7 @@ class FortiSim(SimDevice):
         if line == "get system interface physical":
             rows = ["== [onboard]"]
             for i in self.ifaces:
-                rows.append(f"        ==[{i['name']}]\n                mode: static ip: {i['ip'] or '0.0.0.0'} 255.255.255.0 status: {'up' if self.oper(i) else 'down'} type: physical netmask: 24")
+                rows.append(f"        ==[{i['name']}]\n                mode: static ip: {i['ip'] or NOADDR} 255.255.255.0 status: {'up' if self.oper(i) else 'down'} type: physical netmask: 24")
             return "\n".join(rows)
         if line == "get system lldp neighbors-summary":
             return "Local-Port Remote-Port System-Name\n" + "\n".join(f"{l} {r} {h}" for l, h, r in self.live_neighbors())

@@ -51,7 +51,8 @@ sudo ./install.sh --nginx --server-name onc.example.com     # recommended: app o
 sudo ./install.sh
 ```
 
-or straight from GitHub: `curl -fsSL https://raw.githubusercontent.com/mikeehendricks/OpenNetControl/main/install.sh | sudo bash -s -- --nginx`
+or straight from GitHub, **pinned to a release tag** (recommended over `main`):
+`curl -fsSL https://raw.githubusercontent.com/mikeehendricks/OpenNetControl/v0.1.1/install.sh | sudo bash -s -- --nginx --ref v0.1.1`
 
 The installer: installs apt packages (python3-venv, nginx if requested, ...), creates an unprivileged `opennetcontrol`
 user, installs the app to `/opt/opennetcontrol` in its own virtualenv, writes `/etc/opennetcontrol/opennetcontrol.env`,
@@ -60,7 +61,9 @@ nginx with a self-signed certificate (replace it with a real one), starts the se
 
 * Admin password is generated on first start: `sudo cat /var/lib/opennetcontrol/initial_admin_password.txt` (change it, then delete the file).
 * Re-running the script **upgrades** the code and keeps data, secrets and settings.
-* Options: `--port`, `--bind`, `--nginx`, `--server-name`, `--trust-proxy`, `--demo`, `--source`, `--repo/--ref`, `--no-start`, `--skip-apt`, `-y`; see `./install.sh --help`.
+* Python dependencies are installed from `requirements.lock` (exact versions, SHA-256 hash-verified). `--no-lock` falls back to unpinned `requirements.txt`.
+* nginx mode: TLS 1.2/1.3 with forward-secret AEAD ciphers only, request/connection rate limits, no version banner; the app runs in a heavily sandboxed systemd unit.
+* Options: `--port`, `--bind`, `--nginx`, `--server-name`, `--trust-proxy`, `--demo`, `--source`, `--repo/--ref`, `--no-lock`, `--no-start`, `--skip-apt`, `-y`; see `./install.sh --help`.
 * Remove: `sudo ./install.sh --uninstall` (keeps data) or `--uninstall --purge` (deletes everything).
 * `--demo` runs 15 simulated devices with fault injection - never use it on a production host.
 
@@ -86,7 +89,7 @@ so you can watch correlation and the AI investigation work. Docker: `docker buil
 
 `ONC_HOST`, `ONC_PORT`, `ONC_DATA_DIR`, `ONC_ADMIN_PASSWORD`, `ONC_JWT_SECRET`, `ONC_VAULT_KEY`, `ONC_TOKEN_TTL_MIN`,
 `ONC_POLL_INTERVAL`, `ONC_FOUR_EYES`, `ONC_MAX_TARGETS`, `ONC_MIN_VERSIONS`, `ONC_LOGIN_MAX_FAILS`, `ONC_LOGIN_LOCK_S`,
-`ONC_LOGIN_RATE_PER_MIN`, `ONC_RATE_PER_MIN`, `ONC_TRUST_PROXY`, `ONC_CORS_ORIGINS`, `ONC_LLM_URL` / `ONC_LLM_KEY` / `ONC_LLM_MODEL`.
+`ONC_LOGIN_RATE_PER_MIN`, `ONC_RATE_PER_MIN`, `ONC_TRUST_PROXY`, `ONC_TRUSTED_PROXIES`, `ONC_CORS_ORIGINS`, `ONC_LLM_URL` / `ONC_LLM_KEY` / `ONC_LLM_MODEL`.
 
 The AI works fully offline with a built-in rule-based parser. Optionally point `ONC_LLM_URL` at an OpenAI-compatible
 endpoint to improve intent classification; the model only ever sees the user's question, never device output, and its
@@ -101,7 +104,7 @@ output is re-validated by the same guardrails.
 * Four-eyes approval (requester cannot approve own change), atomic execution (double-submit executes once), blast-radius cap.
 * SSRF controls on device addresses, strict CSP, security headers, body-size cap, generic error responses, no API docs exposed.
 
-See [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md) for what was tested, what was found, and what is **not** covered.
+See [`SECURITY.md`](SECURITY.md) to report a vulnerability, [`docs/SECURITY_AUDIT.md`](docs/SECURITY_AUDIT.md) for the third-party-tool audit, and [`docs/TEST_REPORT.md`](docs/TEST_REPORT.md) for what was tested, what was found, and what is **not** covered.
 
 ## Architecture
 

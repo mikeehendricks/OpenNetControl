@@ -369,10 +369,56 @@ def test_forwarded_header_ignored_unless_proxy_trusted():
 
 
 def test_attacker_cannot_lock_out_real_admin_from_other_ip():
-    app = create_app(mk_settings(trust_proxy=True))
+    app = create_app(mk_settings(trust_proxy=True, trusted_proxies="testclient"))
     with TestClient(app) as c:
         for _ in range(8):
             c.post("/api/auth/login", json={"username": "admin", "password": "guess"}, headers={"X-Forwarded-For": "6.6.6.6"})
         assert c.post("/api/auth/login", json={"username": "admin", "password": "guess"}, headers={"X-Forwarded-For": "6.6.6.6"}).status_code == 429
         ok = c.post("/api/auth/login", json={"username": "admin", "password": PW["admin"]}, headers={"X-Forwarded-For": "7.7.7.7"})
         assert ok.status_code == 200, "legitimate admin must still be able to sign in from a clean IP"
+
+
+def test_xff_from_untrusted_peer_ignored_even_when_proxy_trust_enabled():
+    """ONC_TRUST_PROXY alone is not enough: the TCP peer itself must be a configured trusted proxy."""
+    app = create_app(mk_settings(trust_proxy=True, trusted_proxies="10.255.255.1", login_rate_per_min=5))
+    with TestClient(app) as c:
+        codes = [c.post("/api/auth/login", json={"username": "x", "password": "y"}, headers={"X-Forwarded-For": f"9.9.9.{i}"}).status_code for i in range(12)]
+        assert 429 in codes
+
+
+def test_real_socket_xff_spoof_cannot_bypass_lockout():
+    """Regression (found by external DAST review): uvicorn's own proxy-header rewriting trusted X-Forwarded-For from
+    127.0.0.1, so a forged header per request evaded lockout/rate limits even with ONC_TRUST_PROXY off.
+    This must be tested over a real socket - TestClient never goes through uvicorn."""
+    import socket, threading, time, httpx, uvicorn
+    from opennetcontrol.config import Settings
+    with socket.socket() as s0:
+        s0.bind(("127.0.0.1", 0)); port = s0.getsockname()[1]
+    st = mk_settings()
+    cfg = uvicorn.Config(create_app(st), host="127.0.0.1", port=port, log_level="warning", proxy_headers=False, server_header=False)
+    srv = uvicorn.Server(cfg); th = threading.Thread(target=srv.run, daemon=True); th.start()
+    try:
+        for _ in range(100):
+            if srv.started: break
+            time.sleep(0.05)
+        codes = [httpx.post(f"http://127.0.0.1:{port}/api/auth/login", json={"username": "victim", "password": "wrong"},
+                            headers={"X-Forwarded-For": f"203.0.113.{i}"}).status_code for i in range(15)]
+        assert codes[:5] == [401] * 5 and 429 in codes, codes
+        r = httpx.get(f"http://127.0.0.1:{port}/api/health")
+        assert "server" not in {k.lower() for k in r.headers}, "server banner must not be sent"
+    finally:
+        srv.should_exit = True; th.join(5)
+
+
+def test_initial_password_file_removed_after_password_change(tmp_path):
+    from fastapi.testclient import TestClient
+    st = mk_settings(data_dir=str(tmp_path), admin_password=None)
+    app = create_app(st)
+    with TestClient(app) as c:
+        f = tmp_path / "initial_admin_password.txt"
+        assert f.exists()
+        pw = f.read_text().strip()
+        tok = c.post("/api/auth/login", json={"username": "admin", "password": pw}).json()["token"]
+        r = c.post("/api/auth/password", headers={"Authorization": f"Bearer {tok}"}, json={"current": pw, "new": "N3w-Strong-Passw0rd!x"})
+        assert r.status_code == 200, r.text
+        assert not f.exists(), "first-run password must not stay on disk after it is changed"

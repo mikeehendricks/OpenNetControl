@@ -30,5 +30,6 @@ class Settings:
     login_lock_s: int = int(os.environ.get("ONC_LOGIN_LOCK_S", "900"))
     login_rate_per_min: int = int(os.environ.get("ONC_LOGIN_RATE_PER_MIN", "30"))
     trust_proxy: bool = _b("ONC_TRUST_PROXY", False)   # honour X-Forwarded-For (only behind your own reverse proxy)
+    trusted_proxies: str = os.environ.get("ONC_TRUSTED_PROXIES", "127.0.0.1,::1")   # peers allowed to set X-Forwarded-For (needs ONC_TRUST_PROXY=1)
     rate_per_min: int = int(os.environ.get("ONC_RATE_PER_MIN", "240"))
     min_versions: str = os.environ.get("ONC_MIN_VERSIONS", "")   # e.g. "fortinet_fortios=7.4.0,cisco_iosxe=17.9"

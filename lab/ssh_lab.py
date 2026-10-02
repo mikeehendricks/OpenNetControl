@@ -4,6 +4,8 @@
 """
 from __future__ import annotations
 
+import logging
+import secrets
 import socket
 import sys
 import threading
@@ -58,12 +60,18 @@ def _serve(sim, client, user, password, hostkey):
                 else:
                     buf += c
     except Exception:
-        pass
+        log.debug("lab session ended with error", exc_info=True)
     finally:
         t.close()
 
 
-def start(sim, port, user="admin", password="lab-password", hostkey=None, bind="127.0.0.1"):
+log = logging.getLogger("lab.ssh")
+# No fixed default credential: generated per process (or supply ONC_LAB_PASSWORD). Tests import ssh_lab.PASSWORD.
+PASSWORD = os.environ.get("ONC_LAB_PASSWORD") or secrets.token_urlsafe(16)
+
+
+def start(sim, port, user="admin", password=None, hostkey=None, bind="127.0.0.1"):
+    password = password or PASSWORD
     sock = socket.socket(); sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     sock.bind((bind, port)); sock.listen(20)
 
@@ -82,5 +90,5 @@ if __name__ == "__main__":
     build_lab()
     for n, name in enumerate(LAB):
         start(LAB[name], 2201 + n)
-        print(f"{name:14s} {LAB[name].platform:20s} ssh admin@127.0.0.1 -p {2201+n}  (password: lab-password)")
+        print(f"{name:14s} {LAB[name].platform:20s} ssh admin@127.0.0.1 -p {2201+n}  (password: {PASSWORD})")
     threading.Event().wait()

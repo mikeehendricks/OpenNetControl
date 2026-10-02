@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import logging
 import re
 import socket
 import time
@@ -11,6 +12,8 @@ import paramiko
 
 from .models import DriverError
 from . import validation
+
+log = logging.getLogger("opennetcontrol.transport")
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[=>]|\r")
 
@@ -81,7 +84,7 @@ class SSHSession:
         try:
             self.client.close()
         except Exception:
-            pass
+            log.debug("ssh close failed", exc_info=True)
 
     def __enter__(self): return self
     def __exit__(self, *a): self.close()

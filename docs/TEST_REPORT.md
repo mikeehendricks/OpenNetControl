@@ -1,6 +1,6 @@
 # OpenNetControl - Test Report (usability, bugs, destructive/security testing)
 
-Date: 2026-10-01 - Version 0.1.0 - Result: **188 automated tests, all passing** after fixes.
+Date: 2026-10-01 (updated 2026-10-02) - Version 0.1.1 - Result: **191 automated tests, all passing** after fixes. A separate third-party-tool security audit is in [`SECURITY_AUDIT.md`](SECURITY_AUDIT.md).
 
 ## Executive summary
 
@@ -78,7 +78,7 @@ Run for real on a systemd host (Debian 13, root via sudo): not mocked. ShellChec
 | Service runs unprivileged; secrets/db 0600; env file 0640 root:service; TLS key 0600; app bound to loopback behind nginx | Verified; `systemd-analyze security` exposure 4.0 (OK) |
 | HTTP -> HTTPS redirect, security headers through the proxy, login over TLS with the generated password | Verified |
 | Production mode: simulator fault endpoint | 404 |
-| Forged `X-Forwarded-For` through nginx / direct exposure | Ignored (nginx overwrites it; direct mode does not trust it) |
+| Forged `X-Forwarded-For` through nginx / direct exposure | **Correction (v0.1.1):** originally reported as "ignored". An external review showed that from a loopback/trusted peer uvicorn's own proxy-header handling DID accept a forged header and bypass lockout/rate limits. Fixed and regression-tested over a real socket - see `docs/SECURITY_AUDIT.md` V-01 |
 | Service restart, re-run (upgrade), port change on re-run | Data, password and settings preserved; nginx follows new port |
 | `curl \| bash` style (stdin pipe, clone from git) in demo mode | Works |
 | Mode switching demo <-> production <-> nginx on the same data | Security flags reset correctly each run (see below); warning when leaving demo mode |

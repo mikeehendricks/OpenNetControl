@@ -7,6 +7,9 @@ from ..models import Facts, Iface, Neighbor
 from ..validation import stable_id
 from .base import Driver, dhms_to_s, mask_to_prefix
 
+# FortiOS prints this literal for "no address"; it is parsed device data, not a socket bind.
+NOADDR = "0.0.0.0"  # nosec B104
+
 
 class FortiOS(Driver):
     vendor = "fortinet"
@@ -48,7 +51,8 @@ class FortiOS(Driver):
                 f.extra.setdefault("telnet_ifaces", []).append(name)
             d = re.search(r'set description "([^"]*)"', body)
             f.interfaces.append(Iface(name, admin_up="set status down" not in body, oper_up=up,
-                                      ip="" if ip in ("", "0.0.0.0") else ip, description=d.group(1) if d else ""))
+                                      ip="" if ip in ("", NOADDR) else ip,
+                                      description=d.group(1) if d else ""))
         f.telnet_enabled = telnet
         for m in re.finditer(r"^(port\S+|wan\S*|lan\S*|internal\S*)\s+(\S+)\s+(\S+)\s*$", o["lldp"], re.M):
             f.neighbors.append(Neighbor(m.group(1), m.group(3), m.group(2)))

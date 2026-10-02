@@ -98,7 +98,7 @@ function logo() { return svg("svg", { viewBox: "0 0 32 32", class: "logo", "aria
 async function boot() {
   try { S.user = await api("/api/auth/me"); } catch (e) { return renderLogin(); }
   try { const ops = await api("/api/overview"); S.ov = ops; } catch (e) { /* ignore */ }
-  const hash = location.hash.replace("#", ""); if (NAV.some(n => n[0] === hash)) S.page = hash;
+  const hash = location.hash.replace("#", ""); if (NAV.map(n => n[0]).includes(hash)) S.page = hash;
   drawShell(); go(S.page);
   clearInterval(S.timer); S.timer = setInterval(() => { if (!document.hidden && ["overview", "inventory", "incidents", "topology"].includes(S.page) && !document.querySelector(".drawer")) go(S.page, true); }, 20000);
 }
@@ -334,6 +334,6 @@ PAGES.audit = async () => {
 };
 
 document.addEventListener("keydown", e => { if (e.key === "Escape") { const d = document.querySelector(".drawer"); if (d) { d.remove(); document.getElementById("content")?.focus(); } } });
-window.addEventListener("hashchange", () => { const p = location.hash.replace("#", ""); if (S.user && p !== S.page && PAGES[p]) go(p); });
+window.addEventListener("hashchange", () => { const p = location.hash.replace("#", ""); if (S.user && p !== S.page && Object.hasOwn(PAGES, p)) go(p); });
 if (S.token) boot(); else renderLogin();
 })();

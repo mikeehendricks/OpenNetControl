@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import re
 import threading
 import time
@@ -18,6 +19,8 @@ from .policy import check_lines, check_op, canon_if, PolicyViolation
 from .security import Auth, Audit, Vault, RateLimiter, redact_config
 from .transport import SSHSession, SimSession, HostKeyMismatch
 from . import lab as labmod
+
+log = logging.getLogger("opennetcontrol.core")
 
 
 class ChangeError(Exception):
@@ -107,8 +110,8 @@ class Core:
 
     def delete_device(self, actor, did):
         d = self.get_device(did)
-        for t in ("snapshots", "backups"):
-            self.db.x(f"DELETE FROM {t} WHERE device_id=?", (did,))
+        self.db.x("DELETE FROM snapshots WHERE device_id=?", (did,))      # explicit statements: no SQL built from strings
+        self.db.x("DELETE FROM backups WHERE device_id=?", (did,))
         self.db.x("DELETE FROM links WHERE a_dev=?", (did,))
         self.db.x("DELETE FROM alerts WHERE device_id=?", (did,))
         self.db.x("DELETE FROM devices WHERE id=?", (did,))
@@ -578,8 +581,8 @@ class Core:
             while not self._stop.wait(self.s.poll_interval):
                 try:
                     self.poll_all()
-                except Exception:
-                    pass
+                except Exception:      # keep the poller alive, but never fail silently
+                    log.exception("poll cycle failed")
         threading.Thread(target=loop, daemon=True, name="poller").start()
 
     def stop(self):
