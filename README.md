@@ -30,6 +30,8 @@ Natively supports **Cisco** (IOS-XE, NX-OS), **Fortinet** (FortiOS), **Palo Alto
 ![Incident](docs/screenshots/02-incident-root-cause.png)
 
 ### Live multi-vendor topology
+Red dashed = failed link, amber dotted = a problem is predicted to develop on that link.
+
 ![Topology](docs/screenshots/03-topology.png)
 
 ### Natural-language operations, human-approved
