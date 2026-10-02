@@ -27,6 +27,15 @@ CREATE TABLE IF NOT EXISTS changes(id INTEGER PRIMARY KEY, requester TEXT, appro
 CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY, ts REAL, actor TEXT, action TEXT, detail TEXT, prev TEXT, hash TEXT);
 CREATE TABLE IF NOT EXISTS revoked(jti TEXT PRIMARY KEY, exp REAL);
 CREATE TABLE IF NOT EXISTS login_fails(k TEXT, ts REAL);
+CREATE TABLE IF NOT EXISTS iface_state(device_id INTEGER, ifname TEXT, ts REAL, in_o INTEGER, out_o INTEGER, in_e INTEGER, out_e INTEGER,
+  in_d INTEGER, out_d INTEGER, resets INTEGER, speed INTEGER, low_warn REAL, low_alarm REAL, up INTEGER, PRIMARY KEY(device_id, ifname));
+CREATE TABLE IF NOT EXISTS iface_metrics(device_id INTEGER, ifname TEXT, ts REAL, in_bps REAL, out_bps REAL, util REAL, err_pm REAL,
+  disc_pm REAL, flaps REAL, rx_dbm REAL, up INTEGER, PRIMARY KEY(device_id, ifname, ts));
+CREATE INDEX IF NOT EXISTS ix_iface_metrics_ts ON iface_metrics(ts);
+CREATE TABLE IF NOT EXISTS predictions(id INTEGER PRIMARY KEY, device_id INTEGER, ifname TEXT, kind TEXT, severity TEXT, confidence REAL,
+  title TEXT, detail TEXT, evidence TEXT, eta_ts REAL, eta_low REAL, eta_high REAL, first_seen REAL, last_seen REAL, closed REAL,
+  status TEXT DEFAULT 'active', clear_count INTEGER DEFAULT 0, muted_until REAL, mute_reason TEXT, muted_by TEXT, materialized_ts REAL, cause TEXT);
+CREATE INDEX IF NOT EXISTS ix_predictions_status ON predictions(status);
 """
 
 
@@ -69,8 +78,17 @@ class _Tx:
             self.db.lock.release()
 
 
+_clock = time.time
+
+
+def set_clock(fn) -> None:
+    """Single time source for stored timestamps (the demo swaps in the simulator's controllable clock)."""
+    global _clock
+    _clock = fn or time.time
+
+
 def now() -> float:
-    return time.time()
+    return _clock()
 
 
 def jdump(o) -> str:

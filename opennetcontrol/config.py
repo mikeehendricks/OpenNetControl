@@ -33,3 +33,9 @@ class Settings:
     trusted_proxies: str = os.environ.get("ONC_TRUSTED_PROXIES", "127.0.0.1,::1")   # peers allowed to set X-Forwarded-For (needs ONC_TRUST_PROXY=1)
     rate_per_min: int = int(os.environ.get("ONC_RATE_PER_MIN", "240"))
     min_versions: str = os.environ.get("ONC_MIN_VERSIONS", "")   # e.g. "fortinet_fortios=7.4.0,cisco_iosxe=17.9"
+    predict: bool = _b("ONC_PREDICT", True)                                   # predictive interface monitoring
+    predict_confirm_s: int = int(os.environ.get("ONC_PREDICT_CONFIRM_S", "600"))   # a finding must persist this long before it is surfaced
+    predict_retention_h: int = int(os.environ.get("ONC_PREDICT_RETENTION_H", "72"))
+    predict_util_warn: float = float(os.environ.get("ONC_PREDICT_UTIL_WARN", "0.90"))
+    predict_err_crit_pm: float = float(os.environ.get("ONC_PREDICT_ERR_CRIT_PM", "100"))
+    demo_history_h: float = float(os.environ.get("ONC_DEMO_HISTORY_H", "6"))   # demo only: hours of simulated history to backfill (0 = none)

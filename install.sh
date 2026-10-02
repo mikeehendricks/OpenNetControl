@@ -241,6 +241,15 @@ rm -rf "$INSTALL_DIR/app.old"; [[ -d "$INSTALL_DIR/app" ]] && mv "$INSTALL_DIR/a
 mv "$NEW" "$INSTALL_DIR/app"
 ok "$( ((UPGRADE)) && echo upgraded || echo installed )"
 
+# A failed upgrade must not leave the operator with a stopped service: put the previous version back.
+rollback_app() {
+  if (( UPGRADE )) && [[ -d "$INSTALL_DIR/app.old" ]]; then
+    rm -rf "$INSTALL_DIR/app"; mv "$INSTALL_DIR/app.old" "$INSTALL_DIR/app"
+    systemctl start "$SERVICE" 2>/dev/null || true
+    warn "upgrade failed: the previous version was restored and restarted"
+  fi
+}
+
 # ------------------------------------------------------------------ virtualenv + python deps
 step "Creating virtualenv and installing Python dependencies"
 [[ -x "$INSTALL_DIR/venv/bin/python" ]] || python3 -m venv "$INSTALL_DIR/venv"
@@ -249,7 +258,7 @@ PIP=("$INSTALL_DIR/venv/bin/pip" install -q --no-cache-dir)
 if (( USE_LOCK )) && [[ -f "$INSTALL_DIR/app/requirements.lock" ]]; then
   # Exact versions + SHA-256 hashes: a compromised or typosquatted PyPI upload cannot be installed silently.
   "${PIP[@]}" --require-hashes -r "$INSTALL_DIR/app/requirements.lock" \
-    || die "hash-verified install failed (unsupported platform/Python?). Re-run with --no-lock to use unpinned requirements."
+    || { rollback_app; die "hash-verified install failed (unsupported platform/Python?). Re-run with --no-lock to use unpinned requirements."; }
   ok "installed from requirements.lock (hash-verified)"
 else
   (( USE_LOCK )) && warn "requirements.lock not found; installing unpinned requirements"
@@ -260,7 +269,7 @@ else
   fi
 fi
 # import the real application: catches any dependency missing from requirements.txt
-( cd "$INSTALL_DIR/app" && "$INSTALL_DIR/venv/bin/python" -c "import opennetcontrol.app" ) || die "application import check failed (missing dependency?)"
+( cd "$INSTALL_DIR/app" && "$INSTALL_DIR/venv/bin/python" -c "import opennetcontrol.app" ) || { rollback_app; die "application import check failed (missing dependency?)"; }
 ok "dependencies installed"
 
 # ------------------------------------------------------------------ configuration

@@ -95,6 +95,12 @@ def parse(msg: str, sites: list[str], names: list[str]) -> dict:
         return change("set_ssid_state", {"ssid": m.group(2) or m.group(3), "enabled": m.group(1).lower() in ("enable", "turn on")})
 
     # ---- read-only
+    if re.search(r"\binterfaces?\b.*\b(health|stats|statistics|counters|errors|utili[sz]ation|optics?)\b|\b(health|errors|counters|optics?)\b.*\binterfaces?\b", low) and not re.search(r"\b(predict|forecast|at[- ]risk)", low):
+        return {"type": "iface_health", "filters": filt}
+    if re.search(r"\b(predict\w*|forecast\w*|early[- ]warning|at[- ]risk|about to|going to (?:fail|break|saturate|go down)|will (?:fail|break|saturate|go down)|"
+                 r"degrad\w*|saturat\w*|crc|optic\w*|transceiver|sfp|flapping|proactive\w*|trending|running out|capacity|"
+                 r"before (?:it|they|this|things) (?:fail|break|go|happen)\w*)\b", low):
+        return {"type": "predict", "filters": filt}
     if re.fullmatch(r"(help|\?|what can you do|commands|hi|hello)", low):
         return {"type": "help", "filters": {}}
     if re.search(r"\b(why|root cause|diagnos|investigat|troubleshoot|explain|rca|what happened|what's wrong with|whats wrong with)\b", low):

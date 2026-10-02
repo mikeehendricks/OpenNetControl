@@ -7,7 +7,7 @@ from __future__ import annotations
 import re
 from typing import Callable
 
-from ..models import Facts, UnsupportedOperation, ApplyError
+from ..models import Facts, UnsupportedOperation, ApplyError, DriverError
 
 
 def to_int(s, default=0):
@@ -66,6 +66,26 @@ class Driver:
         f = self.parse(out)
         f.extra["config_len"] = len(out.get("config", ""))
         return f
+
+    def collect_telemetry(self, session) -> list:
+        """Per-interface counters (+ optical power where the platform has DOM).  The counters command is mandatory;
+        optics is best-effort.  Output is untrusted: parsers never raise on junk."""
+        from . import telemetry as T
+        cmds = T.COMMANDS.get(self.platform, {})
+        parts = {}
+        for key, cmd in cmds.items():
+            try:
+                out = session.run(cmd)
+            except DriverError:
+                if key == "counters":
+                    raise
+                continue
+            if self.is_error(out[:200]):
+                if key == "counters":
+                    raise DriverError(f"counters command rejected: {cmd}")
+                continue
+            parts[key] = T.PARSERS[(self.platform, key)](out)
+        return T.merge(parts)
 
     def get_config(self, session) -> str:
         return session.run(self.cmds["config"])

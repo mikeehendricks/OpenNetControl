@@ -15,6 +15,7 @@ from . import validation
 
 log = logging.getLogger("opennetcontrol.transport")
 
+MAX_OUTPUT = 8 * 1024 * 1024        # a device (or an attacker impersonating one) must not be able to exhaust collector memory/CPU
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[=>]|\r")
 
 
@@ -66,7 +67,10 @@ class SSHSession:
             if not data:
                 raise DriverError("connection closed by device")
             buf += ANSI.sub("", data.decode("utf-8", "replace"))
-            if self.prompt_re.search(buf.rstrip("\n").split("\n")[-1] if buf else ""):
+            if len(buf) > MAX_OUTPUT:
+                raise DriverError("device output exceeds the 8 MiB safety limit")
+            # only the tail can hold the prompt: inspecting the whole buffer on every chunk is quadratic
+            if self.prompt_re.search(buf[-1024:].rstrip("\n").split("\n")[-1]):
                 return buf
         raise DriverError("timeout waiting for device prompt")
 

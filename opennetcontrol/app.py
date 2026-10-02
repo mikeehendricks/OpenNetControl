@@ -9,11 +9,12 @@ from contextlib import asynccontextmanager
 from typing import Literal, Optional
 
 from typing import Annotated
-from fastapi import Depends, FastAPI, HTTPException, Path, Request
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import __version__
 from . import validation as V
 from . import lab as labmod
 from .ai.agent import Agent
@@ -83,8 +84,14 @@ class ChatIn(Strict):
     message: str = Field(max_length=1000)
 
 
+class MuteIn(Strict):
+    hours: float = Field(24, ge=0.25, le=720)
+    reason: str = Field("", max_length=200)
+
+
 class FaultIn(Strict):
-    action: Literal["power_off", "power_on", "link_down", "link_up", "cpu"]
+    action: Literal["power_off", "power_on", "link_down", "link_up", "cpu", "degrade", "heal", "fast_forward"]
+    kind: Optional[Literal["errors", "optic", "utilization", "flap", "silent"]] = None
     device: str = Field(max_length=63)
     interface: str = Field("", max_length=40)
     value: float = 0
@@ -106,7 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
         core.stop()
 
-    app = FastAPI(title="OpenNetControl", version="0.1.1", lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="OpenNetControl", version=__version__, lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.core = core
 
     trusted = {p.strip() for p in s.trusted_proxies.split(",") if p.strip()}
@@ -296,6 +303,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def compliance(_: dict = Depends(viewer)):
         return core.compliance()
 
+    # ------------------------------------------------------------------ predictive interface monitoring (read-only)
+    @app.get("/api/predictions")
+    def predictions(status: Literal["active", "muted", "cleared", "materialized", "all"] = "active",
+                    device_id: Optional[DevId] = None, _: dict = Depends(viewer)):
+        return {"now": core.pred.last_analysis or time.time(), "counts": core.pred.counts(),
+                "items": core.pred.list(status, device_id)}
+
+    @app.get("/api/predictions/stats")
+    def prediction_stats(_: dict = Depends(viewer)):
+        return core.pred.stats()
+
+    @app.get("/api/predictions/{pid}")
+    def prediction(pid: ID, _: dict = Depends(viewer)):
+        r = core.pred.get(pid)
+        if not r:
+            raise KeyError("prediction")
+        return r
+
+    @app.post("/api/predictions/{pid}/mute")
+    def prediction_mute(pid: ID, b: MuteIn, u: dict = Depends(operator)):
+        if not core.pred.mute(pid, b.hours, b.reason, u["username"]):
+            raise KeyError("prediction")
+        core.audit.log(u["username"], "prediction.muted", {"id": pid, "hours": b.hours, "reason": b.reason})
+        return {"ok": True}
+
+    @app.post("/api/predictions/{pid}/unmute")
+    def prediction_unmute(pid: ID, u: dict = Depends(operator)):
+        if not core.pred.unmute(pid):
+            raise KeyError("prediction")
+        core.audit.log(u["username"], "prediction.unmuted", {"id": pid})
+        return {"ok": True}
+
+    @app.get("/api/interfaces/health")
+    def interfaces_health(device_id: Optional[DevId] = None, _: dict = Depends(viewer)):
+        return core.pred.health(device_id)
+
+    @app.get("/api/devices/{did}/metrics")
+    def device_metrics(did: ID, ifname: str = Query(max_length=40), hours: float = Query(6.0, ge=0.25, le=72), _: dict = Depends(viewer)):
+        core.get_device(did)
+        return core.pred.metrics(did, V.iface(ifname), hours)
+
     # ------------------------------------------------------------------ device admin
     @app.post("/api/credentials")
     def add_cred(b: CredIn, u: dict = Depends(admin)):
@@ -415,6 +463,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if b.action == "power_off": labmod.set_power(b.device, False)
         elif b.action == "power_on": labmod.set_power(b.device, True)
         elif b.action == "cpu": labmod.set_cpu(b.device, max(0, min(100, b.value)))
+        elif b.action == "degrade":
+            if not b.kind or not labmod.degrade(b.device, V.iface(b.interface), b.kind):
+                raise V.ValidationError("degrade needs a valid interface and kind")
+        elif b.action == "heal":
+            if not labmod.heal(b.device, V.iface(b.interface)):
+                raise KeyError("interface")
+        elif b.action == "fast_forward":
+            core.audit.log(u["username"], "lab.fault", b.model_dump())
+            return {"ok": True, **core.fast_forward(max(300, min(b.value or 3600, 24 * 3600)))}
         else:
             labmod.link_fault(b.device, V.iface(b.interface), b.action == "link_down")
         core.audit.log(u["username"], "lab.fault", b.model_dump())

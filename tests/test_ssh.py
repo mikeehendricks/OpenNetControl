@@ -90,3 +90,33 @@ def test_full_change_over_ssh_and_hostkey_alert(servers):
     c.db.x("UPDATE devices SET host_key='SHA256:AAAAAAAA' WHERE id=?", (d["id"],))
     c.poll_all()
     assert any(a["kind"] == "hostkey_changed" for a in c.alerts())
+
+
+def test_hostile_device_cannot_exhaust_collector_with_endless_output(servers):
+    """Audit V-PRED-01: unbounded device output used to burn CPU (quadratic prompt scan) and memory until the timeout."""
+    sim = LAB["hq-core1"]; orig = sim.execute
+    sim.execute = lambda line: ("A" * 79 + "\n") * 200000 if line == "show interfaces" else orig(line)      # ~16 MB
+    drv = DRIVERS["cisco_iosxe"]
+    t = time.time()
+    with SSHSession("127.0.0.1", servers["hq-core1"], "admin", PASSWORD, drv.prompt_re, allow_loopback=True, timeout=30) as ses:
+        with pytest.raises(DriverError, match="safety limit"):
+            ses.run("show interfaces")
+    assert time.time() - t < 25
+    sim.execute = orig
+
+
+def test_large_but_legitimate_output_is_still_accepted(servers):
+    sim = LAB["hq-core1"]; orig = sim.execute
+    sim.execute = lambda line: ("B" * 79 + "\n") * 20000 if line == "show interfaces" else orig(line)       # 1.6 MB
+    drv = DRIVERS["cisco_iosxe"]
+    with SSHSession("127.0.0.1", servers["hq-core1"], "admin", PASSWORD, drv.prompt_re, allow_loopback=True, timeout=30) as ses:
+        assert len(ses.run("show interfaces")) > 1_500_000
+    sim.execute = orig
+
+
+def test_telemetry_collected_over_real_ssh(servers):
+    drv = DRIVERS["cisco_iosxe"]
+    with SSHSession("127.0.0.1", servers["hq-core1"], "admin", PASSWORD, drv.prompt_re, allow_loopback=True) as ses:
+        for c in drv.paging: ses.run(c)
+        got = drv.collect_telemetry(ses)
+    assert len(got) == len(LAB["hq-core1"].ifaces) and any(c.rx_dbm is not None for c in got)

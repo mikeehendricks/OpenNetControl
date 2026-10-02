@@ -40,7 +40,7 @@ def _serve(sim, client, user, password, hostkey):
         ch = t.accept(20)
         if ch is None:
             return
-        ch.send(sim.prompt())
+        ch.sendall(sim.prompt())
         buf = ""
         while True:
             d = ch.recv(1024)
@@ -49,14 +49,14 @@ def _serve(sim, client, user, password, hostkey):
             for c in d.decode("utf-8", "replace"):
                 if c in "\r\n":
                     line, buf = buf, ""
-                    ch.send("\r\n")
+                    ch.sendall("\r\n")
                     try:
                         out = sim.execute(line) if line.strip() else ""
                     except ConnectionError:
                         ch.close(); return
                     if out:
-                        ch.send(out.replace("\n", "\r\n") + "\r\n")
-                    ch.send(sim.prompt())
+                        ch.sendall(out.replace("\n", "\r\n") + "\r\n")
+                    ch.sendall(sim.prompt())
                 else:
                     buf += c
     except Exception:

@@ -16,6 +16,23 @@ class Iface:
 
 
 @dataclass
+class Counters:
+    """Raw cumulative interface counters as reported by a device (monotonic, may wrap or reset on reload)."""
+    name: str
+    in_octets: int = 0
+    out_octets: int = 0
+    in_errors: int = 0
+    out_errors: int = 0
+    in_discards: int = 0
+    out_discards: int = 0
+    resets: int = 0                       # link flaps / interface resets / link-state transitions
+    speed_bps: int = 0                    # 0 = unknown
+    rx_dbm: float | None = None           # optical receive power (DOM), if the port has a transceiver
+    rx_low_warn: float | None = None      # module-reported low-power warning threshold
+    rx_low_alarm: float | None = None
+
+
+@dataclass
 class Neighbor:
     local_if: str
     remote_host: str

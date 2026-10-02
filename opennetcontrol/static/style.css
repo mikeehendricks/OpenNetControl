@@ -27,7 +27,7 @@ label{display:block;color:var(--muted);font-size:12px;margin:10px 0 4px}
 .top .ask{max-width:380px;flex:1}
 .content{padding:20px 24px;overflow:auto;flex:1}
 .grid{display:grid;gap:14px}
-.kpis{grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(138px,1fr))}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
 .card h3{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .kpi .v{font-size:28px;font-weight:700}
@@ -91,3 +91,25 @@ pre{background:#080e1b;border:1px solid var(--line);border-radius:8px;padding:10
 .tablewrap{overflow:auto;max-height:calc(100vh - 230px)}
 .matrix td,.matrix th{text-align:center}.matrix td:first-child,.matrix th:first-child{text-align:left}
 .yes{color:var(--ok)}.no{color:#475569}
+
+.edge.risk{stroke:#f59e0b;stroke-width:3;stroke-dasharray:2 5}
+.kpi .v.warn{color:#fbbf24}
+.meter{display:inline-block;width:56px;height:7px;border-radius:4px;background:#1e2a44;vertical-align:middle;margin-right:6px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--accent)}
+.drawer.wide{width:min(720px,100vw)}
+.charts{display:grid;gap:10px;margin:12px 0}
+.chartbox{background:#0a1222;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.chart .grid{stroke:#1d2a45;stroke-width:1}
+.chart .axis{fill:var(--muted);font-size:9px}
+.chart .series{fill:none;stroke:#5eead4;stroke-width:1.8}
+.chart .forecast{fill:none;stroke:#fbbf24;stroke-width:1.8;stroke-dasharray:5 4}
+.chart .thr{stroke:#64748b;stroke-width:1;stroke-dasharray:3 3}.chart .thr.warn{stroke:#f59e0b}.chart .thr.crit{stroke:#ef4444}
+.chart .thr-t,.chart .fc-t{fill:#cbd5e1}
+.small{font-size:12px}.tablewrap.short{max-height:220px}
+.eta{font-size:15px}.cause{background:#13213d;border-left:3px solid var(--accent);padding:8px 10px;border-radius:6px}
+.ifgrid-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.ifgrid{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.ifcell{min-width:34px;height:26px;padding:0 5px;font-size:10px;border-radius:6px;border:1px solid #0006;color:#031;font-weight:600}
+.risk-ok{background:#1f9d6b;color:#04140c}.risk-low{background:#3b82f6;color:#031226}.risk-medium{background:#eab308;color:#221a00}
+.risk-high{background:#f97316;color:#2a1000}.risk-critical{background:#ef4444;color:#2a0000}.risk-down{background:#475569;color:#fff}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:middle}

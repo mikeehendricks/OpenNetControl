@@ -10,9 +10,19 @@ from opennetcontrol.app import create_app
 PW = {"admin": "Adm1n-Test#2026!", "admin2": "Adm1n2-Test#2026!", "operator": "Oper4tor-Test#2026", "viewer": "View3r-Test#2026"}
 
 
+@pytest.fixture(autouse=True)
+def _reset_clocks():
+    """The simulator clock and the DB time source are process-global; never let one test leak into the next."""
+    from opennetcontrol import db as _db
+    from opennetcontrol.sim.clock import CLOCK
+    _db.set_clock(None); CLOCK.reset()
+    yield
+    _db.set_clock(None); CLOCK.reset()
+
+
 def mk_settings(**kw):
     d = dict(data_dir=tempfile.mkdtemp(), allow_sim=True, demo=True, admin_password=PW["admin"], poll_interval=3600,
-             login_max_fails=5, rate_per_min=100000)
+             login_max_fails=5, rate_per_min=100000, demo_history_h=0)
     d.update(kw)
     return Settings(**d)
 

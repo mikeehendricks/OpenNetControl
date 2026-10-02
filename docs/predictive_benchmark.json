@@ -1,0 +1,97 @@
+{
+ "seeds": "held-out 10000+ (tuning used 1-999 and early dev seeds)",
+ "notes": "synthetic data; not a substitute for field validation",
+ "confirmation": "a finding must persist 2 buckets (10 min) before it is surfaced",
+ "healthy": {
+  "interfaces": 60,
+  "hours_each": 72,
+  "learning_phase_(<26h_history)": {
+   "flagged": 8,
+   "evaluations": 1320,
+   "rate": 0.0061
+  },
+  "steady_state_(>=26h)": {
+   "flagged": 1,
+   "evaluations": 2700,
+   "rate": 0.0004
+  },
+  "interfaces_ever_flagged_in_steady_state": 1,
+  "by_kind": {
+   "utilization": 9
+  }
+ },
+ "faults": {
+  "errors": {
+   "runs": 30,
+   "detected": 30,
+   "missed": 0,
+   "flagged_before_onset": 0,
+   "median_detection_delay_min": 45.8,
+   "median_lead_time_before_impact_min": 119.7,
+   "detected_before_impact": "30/30",
+   "severity_at_detection": {
+    "high": 26,
+    "medium": 4
+   }
+  },
+  "optic": {
+   "runs": 30,
+   "detected": 30,
+   "missed": 0,
+   "flagged_before_onset": 0,
+   "median_detection_delay_min": 76.7,
+   "median_lead_time_before_impact_min": 688.0,
+   "detected_before_impact": "30/30",
+   "severity_at_detection": {
+    "medium": 15,
+    "low": 14,
+    "high": 1
+   }
+  },
+  "util": {
+   "runs": 30,
+   "detected": 30,
+   "missed": 0,
+   "flagged_before_onset": 0,
+   "median_detection_delay_min": 120.8,
+   "median_lead_time_before_impact_min": 468.4,
+   "detected_before_impact": "30/30",
+   "severity_at_detection": {
+    "medium": 2,
+    "low": 28
+   }
+  },
+  "flap": {
+   "runs": 30,
+   "detected": 30,
+   "missed": 0,
+   "flagged_before_onset": 0,
+   "median_detection_delay_min": 38.1,
+   "median_lead_time_before_impact_min": null,
+   "detected_before_impact": "n/a (impact is immediate)",
+   "severity_at_detection": {
+    "high": 30
+   }
+  },
+  "silent": {
+   "runs": 30,
+   "detected": 30,
+   "missed": 0,
+   "flagged_before_onset": 0,
+   "median_detection_delay_min": 38.1,
+   "median_lead_time_before_impact_min": null,
+   "detected_before_impact": "n/a (impact is immediate)",
+   "severity_at_detection": {
+    "high": 30
+   }
+  }
+ },
+ "overall": {
+  "fault_runs": 150,
+  "detected_after_onset": 150,
+  "missed": 0,
+  "flagged_before_onset": 0,
+  "recall": 1.0
+ },
+ "elapsed_s": 41.9
+}

@@ -103,3 +103,31 @@ def link_fault(name: str, ifname: str, down: bool = True):
     if not i:
         raise KeyError(ifname)
     i["link"] = not down
+
+
+# ---- traffic / degradation fault injection (drives the predictive-monitoring demo)
+def _traffic(name: str):
+    from .sim.telemetry import TrafficModel
+    s = LAB[name]
+    if s.traffic is None:
+        s.traffic = TrafficModel(s)
+    return s.traffic
+
+
+def degrade(name: str, ifname: str, kind: str, start_in_s: float = 0.0, **kw) -> bool:
+    return _traffic(name).inject(ifname, kind, start_in_s=start_in_s, **kw)
+
+
+def heal(name: str, ifname: str) -> bool:
+    return _traffic(name).heal(ifname)
+
+
+DEMO_DEGRADATIONS = (
+    # (device, interface, kind, start_in_s after the 6 h backfill begins, parameters)
+    ("hq-core1", "TenGigabitEthernet1/1/2", "errors", 3600, dict(per_min=1.0, growth_per_h=12.0)),
+    ("hq-fw2", "port1", "errors", 3600, dict(per_min=0.8, growth_per_h=9.0)),          # far end of the same link -> "shared cable" cause
+    ("hq-dist2", "1/1/48", "optic", 1800, dict(db_per_h=1.4)),
+    ("cebu-sw1", "1/1/48", "utilization", 3600, dict(per_h=0.09)),
+    ("davao-sw1", "1/1/2", "flap", 7200, dict(per_h=3.0, growth_per_h=2.0)),
+    ("hq-fw1", "ethernet1/3", "silent", 16200, {}),
+)

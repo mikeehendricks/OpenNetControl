@@ -204,3 +204,102 @@ def test_hash_navigation_and_back(server, browser):
     p = Page(browser, "admin"); p.nav("inventory"); p.nav("compliance")
     p.pg.go_back(); time.sleep(0.5)
     assert p.pg.locator("h1#title").inner_text() == "Inventory"
+
+
+# ====================================================================== predictive monitoring UI
+def test_predictive_page_lists_early_warnings_with_badge(server, browser):
+    p = Page(browser, "viewer")
+    p.nav("predictive")
+    expect(p.pg.locator("h1#title")).to_have_text("Predictive")
+    assert p.pg.locator("tbody tr.click").count() >= 6
+    expect(p.pg.locator("#b-pred")).not_to_be_hidden()
+    assert int(p.pg.locator("#b-pred").inner_text()) >= 6
+    body = p.pg.inner_text("#content")
+    for s in ("Rising interface errors", "Optical signal degrading", "Link heading for saturation", "Interface instability", "Traffic dropped"):
+        assert s in body, s
+    assert "Both ends of the link" in body
+    assert not p.errors, p.errors
+
+
+def test_prediction_drawer_charts_forecast_and_keyboard(server, browser):
+    p = Page(browser, "viewer")
+    p.nav("predictive")
+    row = p.pg.locator("tbody tr.click").nth(2)
+    row.focus(); p.pg.keyboard.press("Enter")
+    p.pg.wait_for_selector(".drawer svg.chart", timeout=5000)
+    charts = p.pg.locator(".drawer svg.chart")
+    assert charts.count() >= 2
+    for i in range(charts.count()):
+        assert charts.nth(i).get_attribute("aria-label")
+    assert p.pg.locator(".drawer path.forecast").count() >= 1
+    assert "Evidence" in p.pg.inner_text(".drawer")
+    assert p.pg.locator(".drawer button:has-text('Mute')").count() == 0          # viewer: read-only
+    p.pg.keyboard.press("Escape")
+    assert p.pg.locator(".drawer").count() == 0
+    assert not p.errors, p.errors
+
+
+def test_operator_can_mute_and_unmute_from_ui(server, browser):
+    p = Page(browser, "operator")
+    p.nav("predictive")
+    p.pg.locator("tbody tr.click").last.click()
+    p.pg.wait_for_selector(".drawer")
+    p.pg.click(".drawer button:has-text('Mute')")
+    p.pg.wait_for_selector(".toast")
+    time.sleep(0.6)
+    assert "muted" in p.pg.inner_text("#content")
+    p.pg.locator("tbody tr.click").last.click()
+    p.pg.wait_for_selector(".drawer")
+    p.pg.click(".drawer button:has-text('Unmute')")
+    time.sleep(0.6)
+    assert "muted" not in p.pg.inner_text("#content").split("Interface health map")[0].lower().replace("read-only", "")
+
+
+def test_interface_health_map_opens_interface_drawer(server, browser):
+    p = Page(browser, "viewer")
+    p.nav("predictive")
+    cells = p.pg.locator(".ifcell")
+    assert cells.count() >= 40
+    assert p.pg.locator(".ifcell.risk-high").count() >= 5
+    assert p.pg.locator(".ifcell.risk-ok").count() >= 25
+    cells.first.click()
+    p.pg.wait_for_selector(".drawer svg.chart")
+    assert "Last 12 hours" in p.pg.inner_text(".drawer")
+
+
+def test_overview_and_topology_surface_predictions(server, browser):
+    p = Page(browser, "viewer")
+    expect(p.pg.locator("#content")).to_contain_text("Early warnings")
+    assert p.pg.locator("#content tbody tr.click").count() >= 5
+    p.nav("topology")
+    assert p.pg.locator("line.edge.risk").count() >= 1
+
+
+def test_predictive_page_is_responsive_on_mobile(server, browser):
+    p = Page(browser, "viewer", size=(390, 800))
+    p.nav("predictive")
+    w = p.pg.evaluate("document.documentElement.scrollWidth")
+    assert w <= 400 + 10 or p.pg.evaluate("getComputedStyle(document.querySelector('.tablewrap')).overflowX") in ("auto", "scroll")
+
+
+def test_ai_assistant_answers_predictive_question_in_ui(server, browser):
+    p = Page(browser, "viewer")
+    p.nav("ai")
+    p.pg.fill("input[aria-label=Message]", "which interfaces are at risk?"); p.pg.keyboard.press("Enter")
+    p.pg.wait_for_selector(".msg.a table", timeout=8000)
+    assert "before any outage" in p.pg.inner_text(".msgs")
+
+
+def test_zz_fast_forward_turns_prediction_into_outage(server, browser):
+    p = Page(browser, "admin")
+    p.pg.wait_for_selector("button:has-text('Fast-forward 6 h')")
+    p.pg.click("button:has-text('Fast-forward 6 h')")
+    p.pg.wait_for_selector(".toast", timeout=60000)
+    time.sleep(1)
+    p.nav("predictive")
+    p.pg.wait_for_selector("text=Predictions that came true")
+    came_true = p.pg.locator(".kpi:has-text('came true') .v").inner_text()
+    assert int(came_true) >= 1
+    p.nav("incidents")
+    assert "hq-dist2" in p.pg.inner_text("#content")
+    assert not [e for e in p.errors if "401" not in e]

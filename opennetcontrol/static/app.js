@@ -2,7 +2,7 @@
 "use strict";
 const S = { token: sessionStorage.getItem("onc_token"), user: null, page: "overview", demo: false, chat: [], timer: null };
 const VN = { cisco: "Cisco", fortinet: "Fortinet", paloalto: "Palo Alto", mikrotik: "MikroTik", ruckus: "Ruckus", aruba: "HPE Aruba" };
-const NAV = [["overview", "Overview", "\u25A6"], ["inventory", "Inventory", "\u2630"], ["topology", "Topology", "\u2B21"], ["incidents", "Incidents", "\u26A0"],
+const NAV = [["overview", "Overview", "\u25A6"], ["inventory", "Inventory", "\u2630"], ["topology", "Topology", "\u2B21"], ["incidents", "Incidents", "\u26A0"], ["predictive", "Predictive", "\u25F7"],
   ["ai", "AI Assistant", "\u2726"], ["compliance", "Compliance", "\u2611"], ["changes", "Changes", "\u21C5"], ["platforms", "Platforms", "\u25A4"], ["audit", "Audit log", "\u2338"]];
 
 // ---------------------------------------------------------------- helpers (no innerHTML anywhere)
@@ -100,11 +100,11 @@ async function boot() {
   try { const ops = await api("/api/overview"); S.ov = ops; } catch (e) { /* ignore */ }
   const hash = location.hash.replace("#", ""); if (NAV.map(n => n[0]).includes(hash)) S.page = hash;
   drawShell(); go(S.page);
-  clearInterval(S.timer); S.timer = setInterval(() => { if (!document.hidden && ["overview", "inventory", "incidents", "topology"].includes(S.page) && !document.querySelector(".drawer")) go(S.page, true); }, 20000);
+  clearInterval(S.timer); S.timer = setInterval(() => { if (!document.hidden && ["overview", "inventory", "incidents", "topology", "predictive"].includes(S.page) && !document.querySelector(".drawer")) go(S.page, true); }, 20000);
 }
 function drawShell() {
   root.replaceChildren();
-  const nav = h("nav", { class: "nav", "aria-label": "Main" }, NAV.map(([id, label, ic]) => h("button", { "data-page": id, onclick: () => go(id) }, h("span", { "aria-hidden": "true" }, ic), h("span", { class: "t" }, label), id === "incidents" ? h("span", { class: "badge chip sev-high", id: "b-inc", hidden: true }) : null, id === "changes" ? h("span", { class: "badge chip st-pending", id: "b-chg", hidden: true }) : null)));
+  const nav = h("nav", { class: "nav", "aria-label": "Main" }, NAV.map(([id, label, ic]) => h("button", { "data-page": id, onclick: () => go(id) }, h("span", { "aria-hidden": "true" }, ic), h("span", { class: "t" }, label), id === "incidents" ? h("span", { class: "badge chip sev-high", id: "b-inc", hidden: true }) : null, id === "predictive" ? h("span", { class: "badge chip sev-medium", id: "b-pred", hidden: true }) : null, id === "changes" ? h("span", { class: "badge chip st-pending", id: "b-chg", hidden: true }) : null)));
   const ask = h("input", { class: "ask", placeholder: "Ask the AI: \"which devices are unreachable?\"", "aria-label": "Ask the AI assistant", onkeydown: e => { if (e.key === "Enter" && ask.value.trim()) { const q = ask.value; ask.value = ""; go("ai"); sendChat(q); } } });
   root.append(h("div", { class: "shell" },
     h("aside", { class: "side" }, h("div", { class: "brand" }, logo(), h("span", {}, "OpenNetControl")), nav,
@@ -128,6 +128,8 @@ async function refreshBadges() {
     const bi = document.getElementById("b-inc"), bc = document.getElementById("b-chg");
     if (bi) { bi.textContent = o.open_incidents; bi.hidden = !o.open_incidents; }
     if (bc) { bc.textContent = o.pending_changes; bc.hidden = !o.pending_changes; }
+    const bp = document.getElementById("b-pred"), pc = o.predictions ? o.predictions.active : 0;
+    if (bp) { bp.textContent = pc; bp.hidden = !pc; bp.setAttribute("aria-label", pc + " developing problems"); }
   } catch (e) { /* */ }
 }
 
@@ -136,16 +138,18 @@ const PAGES = {};
 const kpi = (label, v, sub, cls) => h("div", { class: "card kpi" }, h("h3", {}, label), h("div", { class: "v " + (cls || "") }, v), h("div", { class: "s" }, sub || "\u00A0"));
 
 PAGES.overview = async () => {
-  const [o, inc, comp] = await Promise.all([api("/api/overview"), api("/api/incidents"), api("/api/compliance")]);
+  const [o, inc, comp, pr] = await Promise.all([api("/api/overview"), api("/api/incidents"), api("/api/compliance"), api("/api/predictions")]);
   S.ov = o;
   const max = Math.max(1, ...Object.values(o.vendors));
   const wrap = h("div", { class: "grid" },
     h("div", { class: "grid kpis" }, kpi("Devices", o.devices, o.sites.length + " sites"), kpi("Reachable", o.reachable + "/" + o.devices, o.unreachable ? o.unreachable + " unreachable" : "all healthy"),
       kpi("Open incidents", o.open_incidents, Object.entries(o.alert_severity).map(([k, v]) => v + " " + k).join(", ") || "no active alerts"),
-      kpi("Critical findings", o.critical_findings, o.compliance_findings + " total findings"), kpi("Pending changes", o.pending_changes, "awaiting approval"), kpi("Wi-Fi clients", o.clients, "across all controllers")),
+      kpi("Predicted problems", o.predictions ? o.predictions.active : 0, (o.predictions ? o.predictions.interfaces_at_risk : 0) + " interfaces at risk", o.predictions && o.predictions.active ? "warn" : ""), kpi("Critical findings", o.critical_findings, o.compliance_findings + " total findings"), kpi("Pending changes", o.pending_changes, "awaiting approval"), kpi("Wi-Fi clients", o.clients, "across all controllers")),
     h("div", { class: "grid two" },
       h("div", { class: "card" }, h("h3", {}, "Active incidents"), inc.length ? table(["Severity", "Incident", "Opened"], inc.map(i => ({ cells: [sev(i.severity), i.title, ago(i.opened)], id: i.id })), { click: () => go("incidents") }) : h("p", { class: "muted" }, "\u2713 No open incidents. Everything looks healthy.")),
       h("div", { class: "card" }, h("h3", {}, "Estate by vendor"), Object.entries(o.vendors).sort((a, b) => b[1] - a[1]).map(([v, n]) => h("div", { style: "margin:10px 0" }, h("div", { class: "row" }, vend(v), h("span", { class: "spacer" }), h("strong", {}, n)), h("div", { class: "bar", role: "img", "aria-label": VN[v] + ": " + n + " devices" }, (() => { const i = h("i"); i.style.width = (100 * n / max) + "%"; return i; })()))))),
+    h("div", { class: "card" }, h("div", { class: "row" }, h("h3", { style: "margin:0" }, "Early warnings (predicted before they cause an outage)"), h("span", { class: "spacer" }), h("button", { onclick: () => go("predictive") }, "Open Predictive")),
+      pr.items.length ? table(["Severity", "Device", "Interface", "Issue", "Expected impact"], pr.items.slice(0, 5).map(p => ({ p, cells: [sev(p.severity), p.device, p.ifname, p.title, fmtEta(p)] })), { click: r => predictionDrawer(r.p.id) }) : h("p", { class: "muted" }, "\u2713 Nothing is trending toward a failure.")),
     h("div", { class: "grid two" },
       h("div", { class: "card" }, h("h3", {}, "Top compliance findings"), table(["Severity", "Device", "Rule"], comp.slice(0, 6).map(c => ({ cells: [sev(c.severity), c.device, c.rule] })), { click: () => go("compliance") })),
       h("div", { class: "card" }, h("h3", {}, "Ask the AI Assistant"), h("div", { class: "chips" }, ["What is wrong right now?", "Which devices still have telnet enabled?", "Show all Palo Alto and Fortinet firewalls", "Which devices have the highest CPU?"].map(q => h("button", { onclick: () => { go("ai"); sendChat(q); } }, q))),
@@ -158,7 +162,10 @@ function labPanel() {
   return h("div", { class: "card" }, h("h3", {}, "Demo lab controls (only available when ONC_DEMO=1)"), h("div", { class: "row" },
     h("button", { onclick: () => run("power_off", "hq-dist1") }, "Power off hq-dist1"), h("button", { onclick: () => run("power_on", "hq-dist1") }, "Power on hq-dist1"),
     h("button", { onclick: () => run("cpu", "cebu-fw1", { value: 97 }) }, "Spike CPU on cebu-fw1"), h("button", { onclick: () => run("cpu", "cebu-fw1", { value: 30 }) }, "Normalise CPU"),
-    h("button", { onclick: () => run("link_down", "hq-core1", { interface: "TenGigabitEthernet1/1/4" }) }, "Drop hq-core1 Te1/1/4")));
+    h("button", { onclick: () => run("link_down", "hq-core1", { interface: "TenGigabitEthernet1/1/4" }) }, "Drop hq-core1 Te1/1/4"),
+    h("button", { onclick: () => run("degrade", "hq-dc1", { interface: "Ethernet1/1", kind: "errors" }) }, "Start CRC errors on hq-dc1 Eth1/1"),
+    h("button", { onclick: () => run("heal", "hq-dist2", { interface: "1/1/48" }) }, "Replace optic on hq-dist2 1/1/48"),
+    h("button", { onclick: () => run("fast_forward", "hq-core1", { value: 10800 }) }, "\u23E9 Fast-forward 3 h"), h("button", { onclick: () => run("fast_forward", "hq-core1", { value: 21600 }) }, "\u23E9 Fast-forward 6 h")));
 }
 
 PAGES.inventory = async () => {
@@ -219,7 +226,7 @@ PAGES.topology = async () => {
   Object.entries(levels).forEach(([lv, ns]) => { ns.sort((a, b) => a.site.localeCompare(b.site) || a.name.localeCompare(b.name)); ns.forEach((n, i) => pos[n.id] = { x: 130 + (i + 0.5) * (W - 150) / ns.length, y: 50 + lv * TH }); });
   const s = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "topo", role: "img", "aria-label": "Network topology map", width: "100%" });
   Object.keys(levels).forEach(lv => s.append(svg("text", { class: "tier", x: 8, y: 20 + lv * TH + 30 }, ["EDGE", "CORE", "DIST.", "ACCESS", "WI-FI"][lv] || "TIER " + lv)));
-  t.edges.forEach(e => { const a = pos[e.a], b = pos[e.b]; s.append(svg("line", { class: "edge" + (e.state === "down" ? " down" : ""), x1: a.x, y1: a.y, x2: b.x, y2: b.y })); });
+  t.edges.forEach(e => { const a = pos[e.a], b = pos[e.b]; s.append(svg("line", { class: "edge" + (e.state === "down" ? " down" : e.state === "at_risk" ? " risk" : ""), x1: a.x, y1: a.y, x2: b.x, y2: b.y })); });
   t.nodes.forEach(n => { const p = pos[n.id];
     const g = svg("g", { class: `node st-${n.status} vendor-${n.vendor}`, transform: `translate(${p.x - 62},${p.y - 20})`, tabindex: 0, role: "button", "aria-label": n.name + " " + n.status });
     g.append(svg("rect", { width: 124, height: 40, rx: 9 }), svg("text", { x: 62, y: 17, "text-anchor": "middle", "font-weight": "700" }, n.name), svg("text", { x: 62, y: 31, "text-anchor": "middle", style: "" }, VN[n.vendor] + " \u00B7 " + n.role));
@@ -227,7 +234,7 @@ PAGES.topology = async () => {
     else if (n.alerts) g.append(svg("circle", { cx: 120, cy: 2, r: 7, fill: "#f97316" }));
     g.addEventListener("click", () => deviceDrawer(n.id)); g.addEventListener("keydown", ev => { if (ev.key === "Enter") deviceDrawer(n.id); });
     s.append(g); });
-  return h("div", { class: "card" }, h("div", { class: "legend" }, h("span", {}, "\u25CF Red dashed = failed link / device down"), h("span", {}, "\u25CF Orange badge = active alert"), h("span", {}, "Built live from LLDP/neighbor data collected from every vendor"), h("span", {}, t.nodes.length + " devices \u00B7 " + t.edges.length + " links")), s);
+  return h("div", { class: "card" }, h("div", { class: "legend" }, h("span", {}, "\u25CF Red dashed = failed link / device down"), h("span", {}, "\u25CF Amber dashed = predicted problem developing on this link"), h("span", {}, "\u25CF Orange badge = active alert"), h("span", {}, "Built live from LLDP/neighbor data collected from every vendor"), h("span", {}, t.nodes.length + " devices \u00B7 " + t.edges.length + " links")), s);
 };
 
 PAGES.incidents = async () => {
@@ -238,6 +245,118 @@ PAGES.incidents = async () => {
       h("button", { class: "primary", onclick: () => { go("ai"); sendChat(i.root_device ? "why is " + i.root_device + " having problems?" : "what is wrong right now?"); } }, "\u2726 Investigate with AI")));
   return h("div", { class: "grid" }, inc.length ? inc.map(card) : h("div", { class: "card" }, h("p", { class: "muted" }, "\u2713 No open incidents.")),
     h("div", { class: "card" }, h("h3", {}, "Recently resolved"), res.length ? table(["Incident", "Closed"], res.slice(0, 10).map(r => ({ cells: [r.title, ago(r.closed)] }))) : h("p", { class: "muted" }, "None yet.")));
+};
+
+// ---------------------------------------------------------------- predictive interface monitoring
+const KIND_LABEL = { errors: "Errors", optic: "Optics", utilization: "Capacity", flaps: "Flapping", traffic: "Traffic", discards: "Drops" };
+const fmtBps = v => v == null ? "-" : v >= 1e9 ? (v / 1e9).toFixed(1) + " Gbps" : v >= 1e6 ? (v / 1e6).toFixed(1) + " Mbps" : v >= 1e3 ? (v / 1e3).toFixed(0) + " kbps" : Math.round(v) + " bps";
+const fmtEta = p => { const hrs = p.eta_hours; if (hrs == null) return p.kind === "flaps" || p.kind === "traffic" || p.kind === "discards" ? "occurring now" : "no forecast"; return hrs < 1 ? "~" + Math.max(1, Math.round(hrs * 60)) + " min" : hrs < 48 ? "~" + hrs.toFixed(1) + " h" : "~" + (hrs / 24).toFixed(1) + " d"; };
+const etaNote = p => p.kind === "errors" ? "until errors become service-affecting" : p.kind === "optic" ? "until optical alarm level" : p.kind === "utilization" ? "until link is saturated" : "";
+function meter(conf) {
+  const o = h("span", { class: "meter", role: "img", "aria-label": "confidence " + Math.round(conf * 100) + " percent", title: "Confidence " + Math.round(conf * 100) + "%" });
+  const i = h("i"); i.style.width = Math.round(conf * 100) + "%"; o.append(i); return o;
+}
+function lineChart(o) {
+  const W = o.w || 520, H = o.h || 130, L = 44, R = 10, T = 8, B = 20;
+  const pts = (o.pts || []).filter(p => p[1] != null);
+  const box = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "chart", role: "img", width: "100%" });
+  const first = pts[0], last = pts[pts.length - 1];
+  box.setAttribute("aria-label", o.title + (pts.length ? ": from " + o.fmt(first[1]) + " to " + o.fmt(last[1]) + " over the period" : ": no data"));
+  box.append(svg("title", {}, o.title));
+  if (!pts.length) { box.append(svg("text", { x: W / 2, y: H / 2, "text-anchor": "middle", class: "axis" }, "no data yet")); return box; }
+  const fc = (o.fc || []).filter(p => p[1] != null);
+  const tmin = pts[0][0], tmax = Math.max(pts[pts.length - 1][0], ...fc.map(p => p[0]), tmin + 1);
+  const vals = pts.map(p => p[1]).concat(fc.map(p => p[1]), (o.lines || []).map(l => l.y));
+  let lo = o.min != null ? o.min : Math.min(...vals), hi = o.max != null ? o.max : Math.max(...vals);
+  if (hi - lo < 1e-9) { hi = lo + 1; }
+  const pad = (hi - lo) * 0.08; if (o.min == null) lo -= pad; if (o.max == null) hi += pad;
+  const X = t => L + (t - tmin) / (tmax - tmin) * (W - L - R), Y = v => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+  for (let k = 0; k <= 2; k++) { const v = lo + (hi - lo) * k / 2; box.append(svg("line", { x1: L, x2: W - R, y1: Y(v), y2: Y(v), class: "grid" }), svg("text", { x: L - 4, y: Y(v) + 3, "text-anchor": "end", class: "axis" }, o.fmt(v))); }
+  (o.lines || []).forEach(l => { if (l.y >= lo && l.y <= hi) box.append(svg("line", { x1: L, x2: W - R, y1: Y(l.y), y2: Y(l.y), class: "thr " + (l.cls || "") }), svg("text", { x: W - R - 2, y: Y(l.y) - 3, "text-anchor": "end", class: "axis thr-t" }, l.label)); });
+  let d = ""; pts.forEach((p, i) => { d += (i ? "L" : "M") + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1); });
+  box.append(svg("path", { d, class: "series" }));
+  if (fc.length) { let f = "M" + X(last[0]).toFixed(1) + " " + Y(last[1]).toFixed(1); fc.forEach(p => { f += "L" + X(p[0]).toFixed(1) + " " + Y(p[1]).toFixed(1); }); box.append(svg("path", { d: f, class: "forecast" })); }
+  const nowT = o.now || last[0];
+  box.append(svg("text", { x: L, y: H - 4, class: "axis" }, "-" + Math.round((nowT - tmin) / 3600 * 10) / 10 + " h"), svg("text", { x: X(Math.min(nowT, tmax)), y: H - 4, "text-anchor": "middle", class: "axis" }, "now"));
+  if (tmax > nowT + 60) box.append(svg("text", { x: W - R, y: H - 4, "text-anchor": "end", class: "axis fc-t" }, "+" + Math.round((tmax - nowT) / 3600 * 10) / 10 + " h forecast"));
+  return box;
+}
+function forecastFor(p, m) {
+  const ev = p.evidence || {}, now = m.now;
+  if (p.kind === "utilization" && ev.forecast) return ev.forecast;
+  if (p.kind === "errors" && p.eta_ts && ev.current_per_min != null) return [[now, ev.current_per_min], [p.eta_ts, ev.threshold_per_min]];
+  if (p.kind === "optic" && p.eta_ts && ev.rx_dbm != null) return [[now, ev.rx_dbm], [p.eta_ts, ev.low_alarm]];
+  return [];
+}
+function charts(m, preds) {
+  const P = m.points, now = m.now, byKind = {};
+  (preds || []).forEach(p => { byKind[p.kind] = p; });
+  const fcOf = k => byKind[k] ? forecastFor(byKind[k], m) : [];
+  const col = k => P.map(p => [p.t, p[k]]);
+  const box = h("div", { class: "charts" });
+  const add = (title, node, sub) => box.append(h("div", { class: "chartbox" }, h("div", { class: "muted small" }, title), node, sub ? h("div", { class: "small muted" }, sub) : null));
+  add("Utilisation", lineChart({ title: "Utilisation", pts: col("util"), fc: fcOf("utilization"), now, fmt: v => Math.round(v * 100) + "%", min: 0, max: Math.max(1, ...P.map(p => p.util || 0)), lines: [{ y: m.thresholds.util_warn, label: "saturation", cls: "warn" }] }),
+    "Peak " + fmtBps(Math.max(0, ...P.map(p => Math.max(p.in_bps || 0, p.out_bps || 0)))) + (m.speed_bps ? " of " + fmtBps(m.speed_bps) : ""));
+  add("Input errors per minute", lineChart({ title: "Input errors per minute", pts: col("err_pm"), fc: fcOf("errors"), now, fmt: v => v >= 10 ? Math.round(v) : v.toFixed(1), min: 0, lines: [{ y: m.thresholds.err_crit_pm, label: "service-affecting", cls: "crit" }] }));
+  if (P.some(p => p.rx_dbm != null)) add("Optical receive power (dBm)", lineChart({ title: "Optical receive power", pts: col("rx_dbm"), fc: fcOf("optic"), now, fmt: v => v.toFixed(1), lines: [m.low_warn != null ? { y: m.low_warn, label: "low warn", cls: "warn" } : null, m.low_alarm != null ? { y: m.low_alarm, label: "low alarm", cls: "crit" } : null].filter(Boolean) }));
+  if (P.some(p => (p.flaps || 0) > 0)) add("Link flaps per interval", lineChart({ title: "Link flaps", pts: col("flaps"), now, fmt: v => Math.round(v), min: 0 }));
+  return box;
+}
+async function metricsFor(devId, ifname, hours) { return api("/api/devices/" + devId + "/metrics?ifname=" + encodeURIComponent(ifname) + "&hours=" + hours); }
+async function predictionDrawer(id) {
+  const p = await act(() => api("/api/predictions/" + id)); if (!p) return;
+  const m = await act(() => metricsFor(p.device_id, p.ifname, 12)); if (!m) return;
+  document.querySelector(".drawer")?.remove();
+  const close = () => dr.remove(), ev = p.evidence || {};
+  const evRows = Object.entries(ev).filter(([k, v]) => v != null && typeof v !== "object" && !k.endsWith("_ts")).map(([k, v]) => h("tr", {}, h("td", { class: "muted" }, k.replace(/_/g, " ")), h("td", {}, String(v))));
+  const hours = h("select", { "aria-label": "Mute duration" }, [["1", "1 hour"], ["8", "8 hours"], ["24", "24 hours"], ["168", "7 days"]].map(([v, l]) => h("option", { value: v }, l)));
+  const dr = h("aside", { class: "drawer wide", role: "dialog", "aria-label": "Prediction " + p.id },
+    h("div", { class: "row" }, h("h2", { style: "margin:0" }, p.title), h("span", { class: "spacer" }), h("button", { onclick: close, "aria-label": "Close" }, "\u2715")),
+    h("div", { class: "row", style: "margin:8px 0" }, sev(p.severity), chip(KIND_LABEL[p.kind] || p.kind, "st-unknown"), h("strong", {}, p.device + " " + p.ifname), meter(p.confidence), h("span", { class: "muted" }, "confidence " + Math.round(p.confidence * 100) + "%"),
+      p.status === "muted" ? chip("muted by " + (p.muted_by || "?"), "st-pending") : null, p.status === "materialized" ? chip("failure occurred", "st-down") : null),
+    p.eta_ts ? h("p", { class: "eta" }, h("strong", {}, fmtEta(p)), " " + etaNote(p)) : h("p", { class: "muted" }, fmtEta(p)),
+    h("p", {}, p.detail),
+    p.cause ? h("p", { class: "cause" }, "\u21AA Likely cause: " + p.cause) : null,
+    charts(m, [p]),
+    h("h3", { class: "muted" }, "Evidence (what the model measured)"), h("div", { class: "tablewrap short" }, h("table", {}, h("tbody", {}, evRows))),
+    h("p", { class: "muted small" }, "First flagged " + up(p.age_s) + " ago. Statistical analysis (robust baseline, Mann-Kendall trend test, Theil-Sen slope, CUSUM onset) - not a black box; every figure above is reproducible from the stored counters."),
+    h("div", { class: "row" },
+      h("button", { class: "primary", onclick: () => { close(); go("ai"); sendChat("Why is " + p.device + " " + p.ifname + " degrading and what should I do?"); } }, "\u2726 Ask AI"),
+      can("operator") && p.status !== "muted" ? [hours, h("button", { onclick: () => act(async () => { await api("/api/predictions/" + id + "/mute", { method: "POST", body: { hours: Number(hours.value), reason: "acknowledged from UI" } }); close(); go("predictive"); }, "Muted") }, "Mute (known issue)")] : null,
+      can("operator") && p.status === "muted" ? h("button", { onclick: () => act(async () => { await api("/api/predictions/" + id + "/unmute", { method: "POST" }); close(); go("predictive"); }, "Unmuted") }, "Unmute") : null));
+  document.body.append(dr); dr.querySelector("button")?.focus();
+}
+async function ifaceDrawer(devId, dev, ifname, preds) {
+  const m = await act(() => metricsFor(devId, ifname, 12)); if (!m) return;
+  document.querySelector(".drawer")?.remove();
+  const close = () => dr.remove();
+  const dr = h("aside", { class: "drawer wide", role: "dialog", "aria-label": "Interface " + ifname },
+    h("div", { class: "row" }, h("h2", { style: "margin:0" }, dev + " " + ifname), h("span", { class: "spacer" }), h("button", { onclick: close, "aria-label": "Close" }, "\u2715")),
+    h("p", { class: "muted" }, "Last 12 hours, 5-minute samples" + (m.speed_bps ? " \u00B7 link speed " + fmtBps(m.speed_bps) : "")),
+    m.predictions.length ? m.predictions.map(p => h("p", {}, sev(p.severity), " ", h("a", { href: "#predictive", onclick: e => { e.preventDefault(); predictionDrawer(p.id); } }, p.title))) : h("p", { class: "muted" }, "\u2713 No developing problems detected on this interface."),
+    charts(m, m.predictions.map(p => ({ ...p, evidence: p.evidence }))));
+  document.body.append(dr); dr.querySelector("button")?.focus();
+}
+PAGES.predictive = async () => {
+  const [pr, hl, stt] = await Promise.all([api("/api/predictions"), api("/api/interfaces/health"), api("/api/predictions/stats")]);
+  const items = pr.items, c = pr.counts;
+  const hi = (c.by_severity.critical || 0) + (c.by_severity.high || 0);
+  const tbl = items.length ? table(["Severity", "Device", "Interface", "Issue", "Confidence", "Expected impact", "Likely cause"],
+    items.map(p => ({ p, cells: [sev(p.severity), h("strong", {}, p.device), p.ifname, h("span", {}, chip(KIND_LABEL[p.kind] || p.kind, "st-unknown"), " ", p.title, p.status === "muted" ? chip(" muted", "st-pending") : null), h("span", { class: "row" }, meter(p.confidence), Math.round(p.confidence * 100) + "%"), fmtEta(p) + (etaNote(p) ? " " + etaNote(p) : ""), p.cause ? p.cause.split(",")[0] : "-"] })), { click: r => predictionDrawer(r.p.id) })
+    : h("p", { class: "muted" }, "\u2713 No developing problems detected. " + c.tracked_interfaces + " interfaces are being learned and watched.");
+  const byDev = {}; hl.forEach(x => (byDev[x.device] = byDev[x.device] || []).push(x));
+  const grid = h("div", { class: "ifgrid-wrap" }, Object.entries(byDev).map(([dev, ifs]) => h("div", { class: "ifdev" }, h("div", { class: "muted small" }, dev),
+    h("div", { class: "ifgrid" }, ifs.map(x => h("button", { class: "ifcell risk-" + (x.up ? x.risk : "down"), title: x.device + " " + x.ifname + " \u00B7 " + (x.up ? "risk: " + x.risk : "link down") + (x.util != null ? " \u00B7 " + Math.round(x.util * 100) + "% util" : ""),
+      "aria-label": x.device + " " + x.ifname + ", " + (x.up ? "risk " + x.risk : "link down"), onclick: () => ifaceDrawer(x.device_id, x.device, x.ifname) }, x.ifname.replace(/^(TenGigabitEthernet|Ethernet|ethernet|ether|port|eth)/, "").slice(0, 7) || x.ifname.slice(0, 6)))))));
+  const legend = h("div", { class: "legend" }, [["ok", "healthy"], ["low", "low risk"], ["medium", "medium"], ["high", "high"], ["critical", "critical"], ["down", "link down"]].map(([k, l]) => h("span", {}, h("i", { class: "swatch risk-" + k }), l)));
+  return h("div", { class: "grid" },
+    h("div", { class: "grid kpis" }, kpi("Developing problems", c.active, hi ? hi + " high / critical" : "none urgent", hi ? "warn" : ""), kpi("Interfaces at risk", c.interfaces_at_risk, "of " + c.tracked_interfaces + " tracked"),
+      kpi("Predictions that came true", stt.materialized, stt.median_lead_time_s != null ? "median warning " + (stt.median_lead_time_s >= 3600 ? (stt.median_lead_time_s / 3600).toFixed(1) + " h" : Math.round(stt.median_lead_time_s / 60) + " min") + " ahead" : "interface went down while flagged"),
+      kpi("Cleared on their own", stt.cleared, "recovered / transient")),
+    h("div", { class: "card" }, h("div", { class: "row" }, h("h3", { style: "margin:0" }, "Early warnings"), h("span", { class: "spacer" }), h("span", { class: "muted small" }, "Read-only: this page never changes a device")), tbl),
+    h("div", { class: "card" }, h("h3", {}, "Interface health map"), legend, grid, h("p", { class: "muted small" }, "Click an interface for its last 12 hours of utilisation, errors, optical power and flaps.")),
+    h("div", { class: "card" }, h("h3", {}, "How it predicts"), h("p", { class: "muted" }, "Every poll, OpenNetControl reads each interface's counters (bytes, errors, discards, link resets) and - where the port has a transceiver - its optical receive power. It learns a robust baseline per interface (including the daily rhythm once 26 h of history exist), tests for statistically significant trends, locates when a change started, and extrapolates to the moment a threshold would be crossed. A finding must persist for several minutes before it is shown. When both ends of a link degrade it points at the cable; when one end does, at the port or optic. It is statistical learning, not a language model, and it only advises."),
+      role() === "admin" && S.ov && S.ov.demo ? h("p", { class: "muted small" }, "Demo: use the lab controls on Overview to fast-forward time and watch a prediction turn into a real outage.") : null));
 };
 
 PAGES.compliance = async () => {

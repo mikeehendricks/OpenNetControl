@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from . import validation as V
 from .config import Settings
-from .db import DB, now, jdump
+from .db import DB, now, jdump, set_clock
 from .drivers import get_driver, VENDORS, DRIVERS
 from .models import Facts, Iface, Neighbor, DriverError, ApplyError, UnsupportedOperation
 from .ops import OPS, validate_op
@@ -19,6 +19,7 @@ from .policy import check_lines, check_op, canon_if, PolicyViolation
 from .security import Auth, Audit, Vault, RateLimiter, redact_config
 from .transport import SSHSession, SimSession, HostKeyMismatch
 from . import lab as labmod
+from .predictive import Predictive
 
 log = logging.getLogger("opennetcontrol.core")
 
@@ -60,6 +61,7 @@ class Core:
         self.exec_lock = threading.Lock()
         self._stop = threading.Event()
         self.last_poll = 0.0
+        self.pred = Predictive(self)
 
     # ================================================================ inventory
     def add_credential(self, name, username, secret, actor="system") -> int:
@@ -185,10 +187,15 @@ class Core:
     def poll_device(self, did) -> dict:
         dev = self.get_device(did)
         drv = get_driver(dev["platform"])
-        facts, err = None, ""
+        facts, err, counters = None, "", []
         try:
             with self.open_session(dev) as ses:
                 facts = drv.collect(ses)
+                if self.pred.enabled:
+                    try:
+                        counters = drv.collect_telemetry(ses)
+                    except Exception as e:     # telemetry is best-effort and must never fail the poll
+                        log.debug("telemetry unavailable on %s: %s", dev["name"], type(e).__name__)
         except HostKeyMismatch as e:
             err = f"HOSTKEY: {e}"
         except DriverError as e:
@@ -200,6 +207,11 @@ class Core:
         if facts:
             for n in facts.neighbors:
                 self.db.x("INSERT OR REPLACE INTO links VALUES(?,?,?,?,?)", (did, n.local_if, n.remote_host, n.remote_if, now()))
+        if facts and counters:
+            try:
+                self.pred.ingest(did, now(), counters, {i.name: i.oper_up for i in facts.interfaces})
+            except Exception:
+                log.exception("telemetry ingest failed for %s", dev["name"])
         self._evaluate(dev, facts, err)
         return {"id": did, "reachable": bool(facts), "error": err}
 
@@ -210,6 +222,10 @@ class Core:
             ids = [d["id"] for d in self.db.q("SELECT id FROM devices")]
             res = list(self.pool.map(self.poll_device, ids))
             self.recompute_incidents()
+            try:
+                self.pred.analyze()
+            except Exception:
+                log.exception("predictive analysis failed")
             self.last_poll = time.time()
             return res
         finally:
@@ -347,6 +363,7 @@ class Core:
         devs = self.devices()
         by_name = {d["name"]: d for d in devs}
         down_if = {(a["device_id"], canon_if(a["key"])) for a in self.db.q("SELECT device_id,key FROM alerts WHERE status='open' AND kind='interface_down'")}
+        at_risk = {(r["device_id"], canon_if(r["ifname"])) for r in self.db.q("SELECT device_id, ifname FROM predictions WHERE status IN ('active','muted')")}
         nodes = [{"id": d["id"], "name": d["name"], "vendor": d["vendor"], "platform": d["platform"], "role": d["role"], "site": d["site"],
                   "status": "down" if d["reachable"] is False else ("unknown" if d["reachable"] is None else "up"),
                   "alerts": len(self.db.q("SELECT 1 FROM alerts WHERE device_id=? AND status='open'", (d["id"],)))} for d in devs]
@@ -361,7 +378,8 @@ class Core:
             seen.add(key)
             a, b = by_name[l["a_name"]], by_name[l["b_name"]]
             down = a["reachable"] is False or b["reachable"] is False or (l["a_dev"], canon_if(l["a_if"])) in down_if
-            edges.append({"a": a["id"], "b": b["id"], "a_if": l["a_if"], "b_if": l["b_if"], "state": "down" if down else "up"})
+            risk = (l["a_dev"], canon_if(l["a_if"])) in at_risk or (b["id"], canon_if(l["b_if"])) in at_risk
+            edges.append({"a": a["id"], "b": b["id"], "a_if": l["a_if"], "b_if": l["b_if"], "state": "down" if down else ("at_risk" if risk else "up")})
         return {"nodes": nodes, "edges": edges}
 
     def overview(self):
@@ -378,7 +396,8 @@ class Core:
                 "compliance_findings": len(comp), "critical_findings": sum(1 for c in comp if c["severity"] == "critical"),
                 "pending_changes": self.db.q("SELECT COUNT(*) c FROM changes WHERE status='pending'")[0]["c"],
                 "sites": sorted({d["site"] for d in devs if d["site"]}), "last_poll": self.last_poll,
-                "clients": sum((d["facts"] or {}).get("clients", 0) for d in devs if d["role"] == "wireless")}
+                "clients": sum((d["facts"] or {}).get("clients", 0) for d in devs if d["role"] == "wireless"),
+                "predictions": self.pred.counts()}
 
     def compliance(self):
         mins = {}
@@ -600,4 +619,34 @@ class Core:
         for n in ("hq-core1", "hq-dist1", "hq-fw1", "cebu-sw1"):
             labmod.LAB[n].ntp.append("10.10.0.123")
         labmod.LAB["hq-fw1"].ntp = ["10.10.0.123"]
+        if self.s.demo_history_h > 0:
+            self.backfill_demo_history(min(self.s.demo_history_h, 24.0))
+        else:
+            self.poll_all()
+
+    def backfill_demo_history(self, hours: float = 6.0, step_s: int = 300):
+        """Demo only: run the simulators on a controllable clock that starts in the past, so predictive monitoring has
+        history (and a few degrading interfaces) on first launch.  The clock then continues in real time."""
+        from .sim.clock import CLOCK
+        for t in ("iface_metrics", "iface_state", "predictions"):      # stale data from a previous run would sit "in the future"
+            # table names come from a constant tuple, never from input
+            self.db.x(f"DELETE FROM {t}")  # nosec B608
+        self.pred.pending.clear()
+        CLOCK.rewind_to(time.time() - hours * 3600)
+        set_clock(CLOCK.now)
+        for n, ifn, kind, start, kw in labmod.DEMO_DEGRADATIONS:
+            labmod.degrade(n, ifn, kind, start_in_s=start, **kw)
+        steps = int(hours * 3600 / step_s)
+        for _ in range(steps):
+            self.poll_all()
+            CLOCK.advance(step_s)
         self.poll_all()
+
+    def fast_forward(self, seconds: float, step_s: int = 300) -> dict:
+        """Demo only: advance simulated time, polling at each step, to watch predictions come true."""
+        from .sim.clock import CLOCK
+        seconds = max(0.0, min(float(seconds), 24 * 3600.0))
+        for _ in range(int(seconds // step_s)):
+            CLOCK.advance(step_s)
+            self.poll_all()
+        return {"advanced_s": int(seconds // step_s) * step_s, "now": now()}

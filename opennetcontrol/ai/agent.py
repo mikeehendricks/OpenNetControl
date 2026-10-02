@@ -15,6 +15,7 @@ from . import nlu, llm
 HELP = (
     "I can answer questions about your estate and propose changes (which always go through approval).\n"
     "- **Inventory & health**: \"show all fortinet firewalls\", \"which devices are unreachable?\", \"which switches have high CPU?\"\n"
+    "- **Predict**: \"which interfaces are at risk?\", \"what is about to fail?\", \"is hq-core1 degrading?\", \"show interface health on hq-dist2\"\n"
     "- **Investigate**: \"why is hq-dist1 down?\", \"what is wrong right now?\"\n"
     "- **Compliance**: \"which devices still have telnet enabled?\"\n"
     "- **Changes** (proposal only): \"create vlan 120 named guests on all aruba switches\", \"block ip 203.0.113.9 on all firewalls\", "
@@ -133,6 +134,53 @@ class Agent:
         inc = len(self.core.incidents())
         return {"reply": f"**{len(devs)}** devices ({self._desc(i['filters'])}): {up} reachable, {len(devs)-up} not. "
                          f"Open incidents: **{inc}**.\n" + "\n".join(f"- {k}: {v}" for k, v in sorted(by.items()))}
+
+    ADVICE = {
+        "errors": "Inspect/replace the patch cable or SFP and check duplex/speed on both ends; plan a maintenance window before the error rate becomes service-affecting.",
+        "optic": "Clean the fibre connectors, check bend radius and replace the transceiver if the trend continues; keep a spare ready.",
+        "utilization": "Plan more capacity (LAG/bigger link) or rebalance traffic/QoS before the link saturates.",
+        "flaps": "Check the cable/transceiver and far-end port; consider shutting the port once traffic can be moved (I can draft that change for approval).",
+        "traffic": "Verify the upstream/downstream device, ACL/policy changes and routing; the link itself is up.",
+        "discards": "Check for congestion or a duplex/speed mismatch on this port and its uplink.",
+    }
+
+    def _i_predict(self, u, i, st):
+        ids = {d["id"] for d in self._match(i["filters"])}
+        preds = [p for p in self.core.pred.list("active") if p["device_id"] in ids]
+        cnt = self.core.pred.counts()
+        self._step(st, "predict.list", i["filters"], f"{len(preds)} developing problem(s) across {cnt['tracked_interfaces']} tracked interfaces")
+        if not self.core.pred.enabled:
+            return {"reply": "Predictive monitoring is disabled (ONC_PREDICT=0)."}
+        if not preds:
+            return {"reply": f"No developing problems detected. I am tracking **{cnt['tracked_interfaces']}** interfaces; "
+                             "nothing is trending toward a threshold right now."}
+
+        def eta(p):
+            h = p["eta_hours"]
+            return "already occurring" if h is None else (f"~{max(1, round(h * 60))} min" if h < 1 else f"~{h:.1f} h")
+        lines = [f"**{len(preds)}** interface(s) show signs of a developing problem (before any outage):"]
+        for p in preds[:3]:
+            lines.append(f"- **{p['device']} {p['ifname']}**: {p['title']} ({p['severity']}, confidence {int(p['confidence'] * 100)}%). {p['detail']}"
+                         + (f" _{p['cause']}_" if p.get("cause") else "") + f" **Suggested:** {self.ADVICE.get(p['kind'], '')}")
+        if len(preds) > 3:
+            lines.append(f"…and {len(preds) - 3} more in the table. Details and charts are on the **Predictive** page.")
+        lines.append("I only observe and advise here; any change I draft still needs a second person's approval.")
+        return {"reply": "\n".join(lines),
+                "table": {"columns": ["Device", "Interface", "Issue", "Severity", "Confidence", "Expected impact in"],
+                          "rows": [[p["device"], p["ifname"], p["title"], p["severity"], f"{int(p['confidence'] * 100)}%", eta(p)] for p in preds[:40]]}}
+
+    def _i_iface_health(self, u, i, st):
+        ids = {d["id"] for d in self._match(i["filters"])}
+        rows = [h for h in self.core.pred.health() if h["device_id"] in ids]
+        order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "ok": 4}
+        rows.sort(key=lambda h: (order.get(h["risk"], 5), -(h["util"] or 0)))
+        self._step(st, "predict.health", i["filters"], f"{len(rows)} interface(s)")
+        if not rows:
+            return {"reply": "No interface telemetry collected yet for that scope."}
+        fmt = lambda v, k: "-" if v is None else (f"{v * 100:.0f}%" if k == "u" else (f"{v:.1f}" if k == "e" else f"{v:.1f} dBm"))
+        return {"reply": f"Interface health for **{len(rows)}** interface(s) (worst first):",
+                "table": {"columns": ["Device", "Interface", "Link", "Util", "Errors/min", "Rx power", "Risk"],
+                          "rows": [[h["device"], h["ifname"], "up" if h["up"] else "DOWN", fmt(h["util"], "u"), fmt(h["err_pm"], "e"), fmt(h["rx_dbm"], "r"), h["risk"]] for h in rows[:40]]}}
 
     def _i_unreachable(self, u, i, st):
         devs = [d for d in self._match(i["filters"]) if d["reachable"] is False]

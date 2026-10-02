@@ -11,7 +11,7 @@ import httpx
 
 from ..ops import OPS
 
-INTENTS = ["help", "explain", "compliance", "incidents", "interfaces_down", "unreachable", "resources", "versions",
+INTENTS = ["help", "predict", "iface_health", "explain", "compliance", "incidents", "interfaces_down", "unreachable", "resources", "versions",
            "topology", "summary", "config", "inventory", "change", "unknown"]
 
 SYSTEM = (

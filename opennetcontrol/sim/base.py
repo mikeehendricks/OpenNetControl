@@ -33,6 +33,7 @@ class SimDevice:
         self.role = role or self.role
         self.blocked: list[str] = []
         self.saved_vlans = None
+        self.traffic = None                    # lazily created TrafficModel (sim/telemetry.py)
         self.reject_next: str | None = None   # fault injection: reject a command containing this text
         if role:
             self.role = role
@@ -79,7 +80,10 @@ class SimDevice:
         filt = None
         if " | include " in line:
             line, filt = line.split(" | include ", 1)
-        out = self._exec(line.strip())
+        from . import telemetry
+        out = telemetry.handle(self, line.strip())
+        if out is None:
+            out = self._exec(line.strip())
         if filt:
             out = "\n".join(l for l in out.splitlines() if filt in l)
         return out

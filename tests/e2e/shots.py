@@ -23,6 +23,9 @@ with sync_playwright() as p:
     def shot(name, wait=0.8):
         time.sleep(wait); pg.screenshot(path=f"{OUT}/{name}.png")
     def nav(page): pg.click(f"button[data-page={page}]"); time.sleep(0.5)
+    nav("predictive"); pg.wait_for_selector("text=Early warnings"); shot("09-predictive", 1.0)
+    pg.locator("tr.click", has_text="hq-dist2").first.click(); pg.wait_for_selector(".drawer .chart"); shot("10-predictive-detail", 0.8)
+    pg.keyboard.press("Escape")
     fault(pg, action="power_off", device="hq-dist1"); fault(pg, action="cpu", device="cebu-fw1", value=96)
     nav("overview"); pg.reload(); pg.wait_for_selector(".shell"); shot("01-overview", 1.2)
     nav("incidents"); shot("02-incident-root-cause")
