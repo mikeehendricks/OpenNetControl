@@ -187,7 +187,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ------------------------------------------------------------------ auth
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "version": "0.1.0"}
+        return {"status": "ok"}   # no version on an unauthenticated endpoint
 
     @app.post("/api/auth/login")
     def login(b: LoginIn, request: Request):

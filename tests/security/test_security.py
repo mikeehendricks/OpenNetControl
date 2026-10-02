@@ -422,3 +422,8 @@ def test_initial_password_file_removed_after_password_change(tmp_path):
         r = c.post("/api/auth/password", headers={"Authorization": f"Bearer {tok}"}, json={"current": pw, "new": "N3w-Strong-Passw0rd!x"})
         assert r.status_code == 200, r.text
         assert not f.exists(), "first-run password must not stay on disk after it is changed"
+
+
+def test_health_endpoint_discloses_no_version(client):
+    r = client.get("/api/health")
+    assert r.status_code == 200 and r.json() == {"status": "ok"}
